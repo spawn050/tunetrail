@@ -152,6 +152,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -218,3 +220,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# TuneTrail local data and credentials
+tunetrail.toml
+auth.json
+state/
+cache/
+*.sqlite3
+*.sqlite3-*
