@@ -1,0 +1,564 @@
+# TuneTrail Roadmap
+
+## Vision
+
+TuneTrail is a personal, terminal-first Spotify controller that turns natural-language requests into personalized, reviewable music queues.
+
+Examples:
+
+- “Play something peaceful for studying.”
+- “Play Taylor Swift from 2008 to 2012.”
+- “Give me familiar music with a few discoveries.”
+- “More like this, but calmer.”
+
+Spotify remains the catalog and playback authority. TuneTrail interprets intent, gathers candidates, ranks them against the user’s taste, and asks for approval before changing playback.
+
+## Product Boundaries
+
+### Goals
+
+- Control an active Spotify device from a keyboard-first TUI.
+- Translate natural-language requests into validated listening constraints.
+- Create personalized queues using listening history and explicit feedback.
+- Support optional music-discovery sources without making them required.
+- Explain why tracks were selected.
+- Keep user profile data local by default.
+
+### Non-goals for v1
+
+- Playing or streaming audio inside the application.
+- A public, multi-user Spotify product.
+- Training models on Spotify data.
+- Unattended playback changes made by an autonomous agent.
+- Replacing Spotify’s native recommendation system.
+
+## Core Architecture
+
+```text
+┌─────────────┐
+│ Textual TUI │
+└──────┬──────┘
+       │
+┌──────▼──────────────────┐
+│ Application / Services   │
+├─────────────────────────┤
+│ LangGraph request graph │
+│ Spotify gateway          │
+│ Recommendation service   │
+│ LLM provider factory     │
+│ SQLite repositories      │
+└──────┬──────────────────┘
+       │
+ ┌─────┴────────────────────────────────────┐
+ │ Spotify │ Last.fm │ MusicBrainz │ ReccoBeats │
+ └──────────────────────────────────────────┘
+```
+
+### Technology choices
+
+| Area | Choice |
+| --- | --- |
+| Language | Python 3.12+ |
+| TUI | Textual |
+| Workflow orchestration | LangGraph |
+| Default LLM gateway | OpenRouter via `langchain-openrouter` |
+| Future direct LLMs | Anthropic and OpenAI adapters |
+| Data validation | Pydantic |
+| HTTP | httpx |
+| Persistence | SQLite |
+| Testing | pytest, pytest-asyncio, respx/httpx mocks |
+| Quality tooling | Ruff and Pyright |
+| Spotify authentication | Authorization Code with PKCE |
+
+## Request-to-Playback Flow
+
+```text
+Natural-language request
+  → LLM parses a structured ListeningIntent
+  → validate constraints / ask clarification if necessary
+  → load local taste profile and current session context
+  → retrieve Spotify baseline candidates
+  → optionally enrich or expand from external sources
+  → resolve every candidate to a playable Spotify track
+  → apply deterministic ranking, diversity, and repetition rules
+  → display a queue preview and explanations
+  → user approves, edits, regenerates, or cancels
+  → execute Spotify playback action
+  → save local feedback and session signals
+```
+
+The LLM never invents final track IDs or directly mutates Spotify state. Candidate matching, ranking, and player actions remain deterministic application code.
+
+## LangGraph Design
+
+```text
+START
+  → parse_intent
+  → validate_or_request_clarification
+  → load_profile_and_session
+  → retrieve_spotify_baseline
+  → retrieve_optional_sources
+  → resolve_to_spotify
+  → rank_and_validate_queue
+  → present_queue_preview
+  → interrupt: approve | edit | regenerate | cancel
+  → execute_spotify_action
+  → persist_feedback_and_session
+  → END
+```
+
+The approval interrupt is mandatory before `play now`, replacing a queue, appending tracks, or creating a playlist.
+
+## Personalization Strategy
+
+### Spotify baseline
+
+Required, local taste signals:
+
+- top tracks and artists over short, medium, and long windows;
+- recently played tracks;
+- user-owned or collaborative playlists explicitly selected for ingestion;
+- current playback and active-device state;
+- constrained Spotify catalog search for exact tracks, artists, and years.
+
+Searching Spotify for generic “peaceful playlists” is only a fallback, not personalized discovery.
+
+For vague requests such as “something peaceful,” the intended strategy is: derive seeds from the user's profile, expand those seeds with enabled discovery sources, filter/rank for the requested mood and activity, then resolve the result to Spotify. It is **not** a generic public-playlist search.
+
+### External discovery adapters
+
+| Source | Role | Delivery phase |
+| --- | --- | --- |
+| Last.fm | Historical listening, tags, similar artists/tracks | First optional source |
+| MusicBrainz | Canonical metadata, IDs, years, aliases, editions | Second optional source |
+| ReccoBeats | Candidate expansion and mood/audio-feature signals | Experimental, feature-gated |
+
+All external candidates must be resolved to a playable Spotify URI before they can be shown in a final queue.
+
+### Source-specific operating rules
+
+- **Last.fm:** highest-value optional source. It can provide a configured user's long-term top/recent listening history, similar artists/tracks, and community tags. Public reads need the application's API key; a Last.fm session is not required for these reads. It must remain optional because the user may not have a Last.fm account or scrobbling history.
+- **MusicBrainz:** metadata/resolution source, not a real-time recommender. It is appropriate for MusicBrainz IDs, ISRCs, aliases, release dates, editions, and genres. Use a meaningful `User-Agent`, keep traffic at or below one request per second, cache stable metadata, and do not block every interactive request on it.
+- **ReccoBeats:** experimental candidate/audio-feature source. It currently requires no API key, has unpublished internal rate limits, and states that core track metadata is aggregated from Spotify data. Keep it off by default, avoid broad/long-lived caching, and make it a measured go/no-go decision rather than an MVP dependency.
+- **Spotify:** final catalog and playback authority only. An external source may suggest a name, but it does not make a track playable until the resolver maps it to a Spotify URI with sufficient confidence.
+
+### Scoring
+
+Initial ranking is transparent and deterministic:
+
+```text
+score =
+  request constraint match
+  + taste affinity
+  + mood/activity compatibility
+  + familiarity/discovery preference
+  + source confidence
+  + diversity bonus
+  - recent-play penalty
+  - duplicate artist/album penalties
+  - low-confidence Spotify-match penalty
+```
+
+Hard constraints include artist, year range, explicit-content preference, availability, and valid Spotify resolution.
+
+## Data Model
+
+### Listening intent
+
+The LLM outputs a validated schema such as:
+
+```text
+ListeningIntent
+  action: play_now | append_queue | replace_queue | refine
+  artists: list[str]
+  track_terms: list[str]
+  year_start/year_end: int | None
+  moods: list[str]
+  activities: list[str]
+  duration_minutes: int | None
+  queue_size: int
+  familiarity: familiar | mixed | discovery
+  explicit_allowed: bool | None
+  clarification_needed: bool
+```
+
+### Candidate lifecycle
+
+```text
+Candidate
+  → external/source metadata and provenance
+  → Spotify resolver
+  → ResolvedTrack with URI, match confidence, and score breakdown
+  → approved queue item
+```
+
+Resolution prefers ISRC matching, then conservative normalized artist/title/duration matching. Low-confidence matches are excluded or require explicit review.
+
+Spotify identifiers and external metadata can be incomplete or disagree across editions, remasters, clean/explicit releases, and regional catalog variants. Resolver output must therefore retain provenance and a confidence score rather than assuming every name match is correct.
+
+### Local profile
+
+SQLite stores only application-owned signals:
+
+- compact taste preferences derived from top/recent listening;
+- explicit feedback: like, dislike, more/less like this, too familiar, too distracting;
+- opted-in playlist references;
+- generated queue/session history used to prevent repetition;
+- optional external-source configuration and cached metadata.
+
+## Credentials and Privacy
+
+Keyring is optional rather than required for the personal-tool use case.
+
+- Development secrets belong in a Git-ignored `.env` file with `0600` permissions.
+- Spotify token material belongs in `~/.config/tunetrail/auth.json`, also `0600`.
+- Use Spotify PKCE, so no Spotify client secret is stored locally.
+- The Spotify client ID is not secret; refresh tokens and LLM/API keys are secret.
+- Do not log tokens, full credentials, or raw listening history.
+- Do not send raw Spotify listening history, playlist contents, or a persistent catalog export to the LLM. The normal LLM context is the user request plus a compact, local, non-sensitive taste summary.
+- Spotify content and metadata must not be used to train an ML/AI model. TuneTrail uses LLM inference only for request interpretation and explanation.
+- An optional OS-keyring backend can be added behind a credential-store interface later.
+
+OpenRouter is the initial LLM gateway. Provider selection should be configuration-driven:
+
+```text
+TUNETRAIL_LLM_PROVIDER=openrouter | anthropic | openai
+TUNETRAIL_LLM_MODEL=<model identifier>
+```
+
+Use strict structured output, low temperature, pinned model versions for evaluations, and no-data-collection routing where supported.
+
+OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph node consumes the provider-neutral LangChain chat-model interface so an agent can later add `ChatAnthropic` or `ChatOpenAI` without changing the intent schema or recommendation workflow.
+
+## Spotify Constraints
+
+- Spotify Premium is required for queue and playback-control APIs.
+- The project owner has Spotify Premium; this satisfies the personal-use playback prerequisite.
+- Use PKCE with a `http://127.0.0.1:<port>/callback` redirect URI.
+- Require an active device and make device selection visible in the TUI.
+- Respect API rate limits and `Retry-After` responses.
+- Do not rely on deprecated Spotify recommendation or audio-feature APIs.
+- Serialize related player commands and refresh state after mutations: Spotify does not guarantee execution order when queue and other player endpoints are used together.
+- Request only the scopes needed for enabled features:
+  - `user-modify-playback-state` for player controls, start playback, and queue changes;
+  - `user-read-playback-state` for current playback/devices;
+  - `user-read-currently-playing` for current track details;
+  - `user-top-read` for taste bootstrap;
+  - `user-read-recently-played` for repetition avoidance;
+  - `playlist-read-private` and `playlist-read-collaborative` only for opted-in playlist signals;
+  - playlist-write scopes only if save-as-playlist is implemented.
+- Treat TuneTrail as a personal/private application. Current Spotify development mode requires the app owner to remain Premium and supports only five allowlisted users for newly created apps. Extended-quota access is not a realistic public-product path for this project: Spotify currently restricts new applications to established organizations meeting high-scale requirements.
+- Playlist-item access in current development mode is limited to playlists the user owns or collaborates on. Do not design personalization around reading arbitrary public playlist contents.
+- Spotify search results are catalog discovery only. Search returns a limited page of results and must be paginated deliberately when more candidates are needed.
+- The recommendation endpoint appears in some Spotify documentation but is deprecated; do not use it. Likewise, do not build features around deprecated audio features, popularity, or other removed fields.
+- Spotify API behavior changes regularly. Before implementing an endpoint, verify it against Spotify's current OpenAPI specification and current developer documentation rather than relying on this roadmap alone.
+
+### References to recheck during implementation
+
+- Spotify Web API OpenAPI schema: `https://developer.spotify.com/reference/web-api/open-api-schema.yaml`
+- Spotify authorization with PKCE: `https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow`
+- Spotify quota modes and current development-mode limits: `https://developer.spotify.com/documentation/web-api/concepts/quota-modes`
+- Spotify current migration/change guidance: `https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide`
+- LangGraph overview: `https://docs.langchain.com/oss/python/langgraph/overview`
+- LangChain OpenRouter integration: `https://docs.langchain.com/oss/python/integrations/chat/openrouter`
+- Last.fm API: `https://www.last.fm/api`
+- MusicBrainz API and rate limiting: `https://musicbrainz.org/doc/MusicBrainz_API` and `https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting`
+- ReccoBeats documentation and terms: `https://reccobeats.com/docs/documentation/introduction` and `https://reccobeats.com/docs/documentation/terms-of-service`
+
+## Delivery Phases
+
+### Scoreboard Rules
+
+- Mark an item complete only after its tests or stated verification have passed.
+- Keep unchecked items in place; add brief implementation notes below a phase when a decision or deviation matters.
+- Do not begin a phase's user-facing features until its **phase gate** is satisfied. Preparatory research may happen earlier.
+- Every agent should update this file in the same change set as the completed work.
+
+### Phase 0 — Foundation
+
+
+**Goal:** establish a typed, testable, secure project base.
+
+- [x] Initialize a Python 3.12+ package with `pyproject.toml` and `src/tunetrail/` layout.
+- [x] Add runtime dependencies: Textual, Pydantic, httpx, LangGraph, LangChain core, and OpenRouter integration.
+- [x] Add development dependencies: pytest, pytest-asyncio, respx, Ruff, and Pyright.
+- [x] Configure Ruff formatting/linting and Pyright strictness appropriate for the project.
+- [x] Configure pytest, including async test support and a separate test package structure.
+- [ ] Add a GitHub Actions or equivalent CI workflow that runs format/lint, type checks, and tests.
+- [x] Implement typed application settings sourced from environment variables and a local config file.
+- [x] Define standard local paths for configuration, state, cache, and SQLite data.
+- [x] Implement redacted structured logging; ensure tokens and authorization headers cannot be logged.
+- [x] Implement file-permission checks for local secret/token files.
+- [x] Define initial Pydantic domain models: `ListeningIntent`, `Candidate`, `ResolvedTrack`, device, playback, queue, feedback, and profile summaries.
+- [x] Define protocol interfaces for Spotify, credential storage, LLM creation, repositories, candidate sources, resolver, and ranker.
+- [x] Add test fixtures and factories for domain objects without real credentials.
+
+**Phase gate:** a clean checkout installs successfully; formatting/lint, type checks, and tests pass; no secret path is tracked by Git.
+
+### Phase 1 — Spotify control
+
+
+**Goal:** securely authenticate and control Spotify from a minimal TUI.
+
+- [ ] Create Spotify developer-app setup documentation, including the required `127.0.0.1` redirect URI and scopes.
+- [ ] Implement PKCE authorization URL generation with state, verifier, and challenge validation.
+- [ ] Implement a local loopback callback receiver and OAuth code exchange.
+- [ ] Implement refresh-token persistence using the default `0600` local credential file.
+- [ ] Implement token refresh and expired/revoked-token recovery.
+- [ ] Implement a logout command that removes local Spotify token material.
+- [ ] Build a typed Spotify HTTP client with bearer-token injection and normalized API errors.
+- [ ] Implement retry/backoff behavior, including Spotify `429` and `Retry-After` handling.
+- [ ] Implement current-user and playback-state retrieval.
+- [ ] Implement active-device listing and device selection.
+- [ ] Implement player controls: play/resume, pause, previous, next, and selected-device targeting.
+- [ ] Implement track search and add-to-queue for an explicit Spotify URI.
+- [ ] Handle no-device, Premium/access, missing-scope, unavailable-track, and authorization errors in user-facing messages.
+- [ ] Build a minimal Textual shell showing auth state, active device, and now-playing state.
+- [ ] Add mocked Spotify-client unit/integration tests for auth, refresh, player calls, and error handling.
+
+**Phase gate:** the app can authenticate, survive restart via token refresh, select an active device, queue a known track, and control playback with mocked coverage for failures.
+
+### Phase 2 — Safe TUI queue workflow
+
+
+**Goal:** make TuneTrail a useful keyboard-first Spotify controller before AI features.
+
+- [ ] Design the Textual layout for now playing, device, command input, results, queue preview, notifications, and shortcuts.
+- [ ] Implement keyboard command focus, history, validation, and help/shortcut display.
+- [ ] Implement explicit catalog-search commands for track, artist, album, and playlist contexts.
+- [ ] Display catalog search results with Spotify attribution and selection controls.
+- [ ] Implement a reviewable queue-preview model independent of Spotify mutations.
+- [ ] Implement `play now` confirmation and selected-device playback.
+- [ ] Implement `append to queue` confirmation.
+- [ ] Implement cancel/back behavior that guarantees no player mutation occurs.
+- [ ] Retrieve and display the current Spotify queue when available.
+- [ ] Show active device, current track, playback progress, and command/action status.
+- [ ] Persist a minimal local action history without storing tokens or unnecessary catalog data.
+- [ ] Add Textual interaction tests for search, selection, confirmation, cancellation, and error states.
+
+**Phase gate:** keyboard-only use can search, preview, play, append, cancel, and recover from common Spotify failures without AI features.
+
+### Phase 3 — LangGraph and natural language
+
+
+**Goal:** turn clear natural-language requests into safe, reviewable Spotify actions.
+
+- [ ] Implement an LLM provider factory with OpenRouter as the first backend.
+- [ ] Add configuration for model name, temperature, retry behavior, and provider data-collection policy.
+- [ ] Define a strict Pydantic `ListeningIntent` schema and prompt contract.
+- [ ] Implement OpenRouter structured-output parsing with schema validation and malformed-response recovery.
+- [ ] Add direct Anthropic and OpenAI adapters, or leave clearly tested extension points if credentials are unavailable.
+- [ ] Implement LangGraph state models and graph compilation.
+- [ ] Implement `parse_intent` and deterministic intent-validation nodes.
+- [ ] Implement clarification flow for material ambiguity, such as an unspecified artist/version or conflicting years.
+- [ ] Implement a Spotify-only candidate retrieval node for direct artist/track/year constraints.
+- [ ] Implement a deterministic resolver/ranker stub sufficient for direct requests.
+- [ ] Implement queue-preview and explicit approval interrupt/resume flow.
+- [ ] Implement safe cancellation, edit, and regenerate graph exits.
+- [ ] Add graph tests for successful parsing, malformed output, ambiguity, approval, cancellation, and LLM timeouts.
+- [ ] Add canonical prompt fixtures, including Taylor Swift era requests and invalid/adversarial prompts.
+
+**Phase gate:** direct natural-language requests produce an inspectable structured intent and never mutate Spotify playback before an approval interrupt resumes the graph.
+
+### Phase 4 — Spotify-only personalization
+
+
+**Goal:** make vague requests more personal than generic keyword search without external services.
+
+- [ ] Add SQLite schema and migrations for profile summaries, feedback, sessions, action history, and cache metadata.
+- [ ] Implement repositories with transaction boundaries and migration tests.
+- [ ] Request and ingest Spotify top tracks/artists for short, medium, and long time windows.
+- [ ] Request and ingest recently played tracks for repetition avoidance.
+- [ ] Add opt-in selection of user-owned/collaborative playlists as taste signals.
+- [ ] Build a compact local profile summary from Spotify signals; do not create a broad permanent catalog copy.
+- [ ] Implement feedback actions: like, dislike, more like this, less like this, too familiar, and too distracting.
+- [ ] Add feedback-derived local preference weights with clear precedence over inferred signals.
+- [ ] Implement candidate retrieval from profile seeds and constrained Spotify catalog search.
+- [ ] Implement hard filters for artist, year, explicit-content, availability, and valid URI resolution.
+- [ ] Implement deterministic score components for taste affinity, familiarity/discovery, recency, diversity, and request fit.
+- [ ] Implement artist/album deduplication, recently-played penalties, and queue-duration fitting.
+- [ ] Implement source/score explanations for each final track.
+- [ ] Add evaluation fixtures for “peaceful study,” familiar versus discovery, duration, explicit-content, and repetition behavior.
+- [ ] Add a local profile reset/export command.
+
+**Phase gate:** vague requests produce a personalized, diverse, explainable queue using Spotify-only signals and pass the fixed personalization evaluation suite.
+
+### Phase 5 — Last.fm enrichment
+
+
+**Goal:** optionally improve discovery through Last.fm history, tags, and similarity links.
+
+- [ ] Add opt-in Last.fm username/API-key configuration and credential handling.
+- [ ] Implement a typed Last.fm client with timeout, error normalization, retry, and rate-limit behavior.
+- [ ] Implement top-track, top-artist, and recent-track import for the configured user.
+- [ ] Implement artist-similarity and track-similarity candidate expansion.
+- [ ] Implement artist/track tag retrieval and normalization into TuneTrail mood/activity tags.
+- [ ] Add cache expiry rules for Last.fm profile and similarity responses.
+- [ ] Add Last.fm provenance to candidates and queue explanations.
+- [ ] Resolve Last.fm candidates conservatively through Spotify before ranking.
+- [ ] Ensure missing, private, stale, or mismatched Last.fm history does not prevent Spotify-only operation.
+- [ ] Add mocked Last.fm tests for valid data, unavailable API, rate limiting, and non-resolvable candidates.
+- [ ] Compare Spotify-only and Last.fm-enhanced outputs with the fixed evaluation suite; record findings below this phase.
+
+**Phase gate:** Last.fm is opt-in, failure-tolerant, and measurably increases valid candidate diversity without lowering Spotify-resolution accuracy.
+
+### Phase 6 — MusicBrainz enrichment
+
+
+**Goal:** improve metadata quality and cross-source matching without slowing interactive use.
+
+- [ ] Implement a typed MusicBrainz client with an application-specific User-Agent.
+- [ ] Implement a global one-request-per-second client-side rate limiter and `503` recovery.
+- [ ] Add canonical artist/recording/release lookup models.
+- [ ] Implement ISRC-first lookup and link storage.
+- [ ] Implement conservative normalized artist/title/duration fallback matching with confidence scores.
+- [ ] Retrieve aliases, release dates, release types, and relevant genres/tags.
+- [ ] Improve era/year validation and identify likely remaster/edition ambiguity.
+- [ ] Cache stable MusicBrainz metadata; keep enrichment outside the interactive hot path whenever possible.
+- [ ] Add queue/explanation annotations when canonical metadata changes an interpretation.
+- [ ] Add tests for aliases, duplicate recordings, remasters, ISRC matches, low-confidence matches, limiter behavior, and API failures.
+
+**Phase gate:** era-based requests and external-source resolutions are more accurate, confidence-scored, rate-safe, and explainable.
+
+### Phase 7 — ReccoBeats evaluation
+
+
+**Goal:** make a measured decision on using ReccoBeats as an optional recommendation signal.
+
+- [ ] Document the current ReccoBeats API contract, terms, known rate behavior, and Spotify-data provenance considerations.
+- [ ] Add a feature flag and disabled-by-default ReccoBeats configuration.
+- [ ] Implement a typed, timeout-bounded ReccoBeats client behind the candidate-source protocol.
+- [ ] Implement seed-track recommendation retrieval and optional audio-feature mapping.
+- [ ] Resolve every ReccoBeats candidate through Spotify; discard low-confidence or unavailable results.
+- [ ] Add a source-specific cache policy that avoids broad/long-lived catalog caching.
+- [ ] Measure latency, API-error rate, Spotify-match coverage, and candidate diversity on the evaluation suite.
+- [ ] Compare queue quality against Spotify-only and Last.fm-enhanced baselines.
+- [ ] Review Spotify-policy compatibility before enabling the source for normal use.
+- [ ] Record a go/no-go decision and rationale below this phase.
+- [ ] If approved, add explicit source provenance and an opt-out setting; otherwise remove the runtime dependency and retain evaluation notes.
+
+**Phase gate:** a documented, evidence-based go/no-go decision exists. If enabled, ReccoBeats is optional, failure-tolerant, and never bypasses Spotify resolution or user approval.
+
+### Phase 8 — Evaluation and polish
+
+
+**Goal:** make the application trustworthy and maintainable for daily personal use.
+
+- [ ] Define local-only evaluation metrics: approval rate, skips, feedback, source contribution, duplicate rate, resolution rate, and preview latency.
+- [ ] Add privacy-preserving local metrics storage and reset/export controls.
+- [ ] Create a fixed regression evaluation suite of representative requests and expected constraints.
+- [ ] Add resilience tests for no device, expired/revoked token, missing scope, Spotify `429`, optional-source outage, invalid LLM output, and network timeout.
+- [ ] Add TUI recovery actions for every expected failure state.
+- [ ] Add source enable/disable controls and a clear source-status view.
+- [ ] Add credential cleanup and complete-profile deletion commands.
+- [ ] Write setup, Spotify developer-app, configuration, privacy, troubleshooting, and contribution documentation.
+- [ ] Add packaging/install instructions and test the clean-machine installation path.
+- [ ] Run an end-to-end manual acceptance pass and record results below this phase.
+
+**Phase gate:** TuneTrail has passed the regression suite and end-to-end manual acceptance pass, recovers clearly from expected failures, and is documented for repeatable personal installation.
+
+## Phase Notes and Decisions
+
+Use this section for short, durable notes that help later agents understand completed work or intentional deviations.
+
+### Phase 0
+
+Implemented the package, `uv`-managed dependency lockfile, strict local quality tooling, typed configuration and XDG paths, secure file helpers, redacted JSON logging, domain models, protocols, and test factories. Local verification passes with `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, and `uv run pytest` (12 tests).
+
+GitHub Actions CI is intentionally deferred so it can be added as a separate learning task. The CI checkbox and Phase 0 gate therefore remain open.
+
+### Phase 1
+
+_No implementation notes yet._
+
+### Phase 2
+
+_No implementation notes yet._
+
+### Phase 3
+
+_No implementation notes yet._
+
+### Phase 4
+
+_No implementation notes yet._
+
+### Phase 5
+
+_No implementation notes yet._
+
+### Phase 6
+
+_No implementation notes yet._
+
+### Phase 7
+
+_No implementation notes yet._
+
+### Phase 8
+
+_No implementation notes yet._
+
+## Testing Strategy
+
+### Unit tests
+
+- Intent validation and ambiguity handling.
+- Candidate normalization and resolution confidence.
+- Ranking, hard filters, diversity, and recent-play rules.
+- Credential storage permissions and secret redaction.
+- Configuration and LLM-provider factory behavior.
+
+### Integration tests
+
+- Spotify PKCE callback, refresh, and player error paths.
+- LangGraph transitions and approval interrupt/resume.
+- Mocked Last.fm, MusicBrainz, and ReccoBeats adapters.
+- Optional-source failures that leave Spotify-only queues functional.
+
+### Manual acceptance scenarios
+
+- “Play Taylor Swift from 2008 to 2012.”
+- “Play something peaceful for studying for 45 minutes.”
+- “Give me familiar music with a few new discoveries.”
+- “More like this but calmer.”
+- No active Spotify device.
+- LLM timeout or invalid structured response.
+- Unavailable external candidate.
+- Spotify rate limiting.
+- No optional services configured.
+
+## Proposed Package Layout
+
+```text
+src/tunetrail/
+  app.py
+  config.py
+  tui/
+  auth/
+  spotify/
+  llm/
+  graph/
+  recommendation/
+    profile.py
+    retrieval.py
+    resolver.py
+    ranking.py
+    sources/
+      spotify.py
+      lastfm.py
+      musicbrainz.py
+      reccobeats.py
+  persistence/
+  domain/
+  services/
+tests/
+```
+
+## Near-Term Priorities
+
+1. Build the Spotify PKCE/control foundation.
+2. Make the non-AI TUI useful and safe.
+3. Add LangGraph with structured intent parsing and confirmation.
+4. Add Spotify-only personalization before adding any external source.
+5. Introduce Last.fm, then MusicBrainz; evaluate ReccoBeats separately.
