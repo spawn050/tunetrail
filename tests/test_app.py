@@ -1,13 +1,16 @@
-"""Tests for the application entry point."""
+"""Tests for application composition and the Textual shell."""
 
-import pytest
+from textual.widgets import Static
 
-from tunetrail.app import main
+from tunetrail.tui.app import SpotifyControlApp
 
 
-def test_main_shows_setup_message(capsys: pytest.CaptureFixture[str]) -> None:
-    """The installed command gives a useful response before configuration."""
-    main()
+async def test_unconfigured_shell_explains_the_missing_client_id() -> None:
+    """The initial TUI tells a new user how to enable Spotify sign-in."""
+    app = SpotifyControlApp(
+        configuration_error="Set TUNETRAIL_SPOTIFY_CLIENT_ID before signing in."
+    )
 
-    captured = capsys.readouterr()
-    assert "not configured" in captured.out
+    async with app.run_test():
+        assert "Spotify is not configured" in str(app.query_one("#status", Static).render())
+        assert "TUNETRAIL_SPOTIFY_CLIENT_ID" in str(app.query_one("#notice", Static).render())
