@@ -300,21 +300,21 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** securely authenticate and control Spotify from a minimal TUI.
 
-- [ ] Create Spotify developer-app setup documentation, including the required `127.0.0.1` redirect URI and scopes.
-- [ ] Implement PKCE authorization URL generation with state, verifier, and challenge validation.
-- [ ] Implement a local loopback callback receiver and OAuth code exchange.
-- [ ] Implement refresh-token persistence using the default `0600` local credential file.
-- [ ] Implement token refresh and expired/revoked-token recovery.
-- [ ] Implement a logout command that removes local Spotify token material.
-- [ ] Build a typed Spotify HTTP client with bearer-token injection and normalized API errors.
-- [ ] Implement retry/backoff behavior, including Spotify `429` and `Retry-After` handling.
-- [ ] Implement current-user and playback-state retrieval.
-- [ ] Implement active-device listing and device selection.
-- [ ] Implement player controls: play/resume, pause, previous, next, and selected-device targeting.
-- [ ] Implement track search and add-to-queue for an explicit Spotify URI.
-- [ ] Handle no-device, Premium/access, missing-scope, unavailable-track, and authorization errors in user-facing messages.
-- [ ] Build a minimal Textual shell showing auth state, active device, and now-playing state.
-- [ ] Add mocked Spotify-client unit/integration tests for auth, refresh, player calls, and error handling.
+- [x] Create Spotify developer-app setup documentation, including the required `127.0.0.1` redirect URI and scopes.
+- [x] Implement PKCE authorization URL generation with state, verifier, and challenge validation.
+- [x] Implement a local loopback callback receiver and OAuth code exchange.
+- [x] Implement refresh-token persistence using the default `0600` local credential file.
+- [x] Implement token refresh and expired/revoked-token recovery.
+- [x] Implement a logout command that removes local Spotify token material.
+- [x] Build a typed Spotify HTTP client with bearer-token injection and normalized API errors.
+- [x] Implement retry/backoff behavior, including Spotify `429` and `Retry-After` handling.
+- [x] Implement current-user and playback-state retrieval.
+- [x] Implement active-device listing and device selection.
+- [x] Implement player controls: play/resume, pause, previous, next, and selected-device targeting.
+- [x] Implement track search and add-to-queue for an explicit Spotify URI.
+- [x] Handle no-device, Premium/access, missing-scope, unavailable-track, and authorization errors in user-facing messages.
+- [x] Build a minimal Textual shell showing auth state, active device, and now-playing state.
+- [x] Add mocked Spotify-client unit/integration tests for auth, refresh, player calls, and error handling.
 
 **Phase gate:** the app can authenticate, survive restart via token refresh, select an active device, queue a known track, and control playback with mocked coverage for failures.
 
@@ -469,7 +469,11 @@ GitHub Actions CI is intentionally deferred so it can be added as a separate lea
 
 ### Phase 1
 
-_No implementation notes yet._
+Implemented Spotify Authorization Code with PKCE using a state-bound local loopback callback, owner-only token persistence, refresh-token rotation, revoked-session cleanup, and logout. The typed async Spotify client adds bearer authentication, safe GET retries for `429`/transient server errors, normalized user-facing errors, player-command serialization, and a state refresh after every player mutation.
+
+The minimal Textual shell displays authorization, device, and now-playing state; supports device selection and player controls; and starts the browser-based sign-in flow. Track search and explicit URI queueing are available through the typed application client; their keyboard-first review workflow is intentionally deferred to Phase 2.
+
+Local verification passes with `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, and `uv run pytest` (31 tests). Spotify API behavior was checked against the current OpenAPI schema during implementation; track search is capped at 10 results per request.
 
 ### Phase 2
 
