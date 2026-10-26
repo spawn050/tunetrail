@@ -18,6 +18,12 @@ class Settings(BaseModel):
 
     spotify_client_id: str | None = None
     spotify_redirect_uri: str = "http://127.0.0.1:8765/callback"
+    spotify_accounts_url: str = "https://accounts.spotify.com"
+    spotify_api_url: str = "https://api.spotify.com/v1"
+    spotify_scopes: str = (
+        "user-read-private user-read-playback-state user-read-currently-playing "
+        "user-modify-playback-state"
+    )
     llm_provider: Literal["openrouter", "anthropic", "openai"] = "openrouter"
     llm_model: str | None = None
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
