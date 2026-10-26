@@ -119,6 +119,39 @@ async def test_player_mutation_refreshes_playback(tmp_path: Path) -> None:
 
 
 @respx.mock
+async def test_client_supports_queue_playback_and_device_operations(tmp_path: Path) -> None:
+    """Every Phase 1 player operation uses its documented Spotify endpoint."""
+    queue = respx.post("https://api.example/v1/me/player/queue").mock(
+        return_value=httpx.Response(204)
+    )
+    play = respx.put("https://api.example/v1/me/player/play").mock(return_value=httpx.Response(204))
+    next_track = respx.post("https://api.example/v1/me/player/next").mock(
+        return_value=httpx.Response(204)
+    )
+    previous_track = respx.post("https://api.example/v1/me/player/previous").mock(
+        return_value=httpx.Response(204)
+    )
+    select_device = respx.put("https://api.example/v1/me/player").mock(
+        return_value=httpx.Response(204)
+    )
+    respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
+    async with httpx.AsyncClient() as http_client:
+        client = await spotify_client(tmp_path, http_client, [])
+        await client.add_to_queue("spotify:track:4uLU6hMCjMI75M1A2tKUQC", device_id="device-1")
+        await client.start_playback(["spotify:track:4uLU6hMCjMI75M1A2tKUQC"], device_id="device-1")
+        await client.resume(device_id="device-1")
+        await client.next_track(device_id="device-1")
+        await client.previous_track(device_id="device-1")
+        await client.select_device("device-1")
+
+    assert queue.called
+    assert play.call_count == 2
+    assert next_track.called
+    assert previous_track.called
+    assert select_device.called
+
+
+@respx.mock
 async def test_rate_limit_on_mutation_is_reported_without_retry(tmp_path: Path) -> None:
     """Unsafe player mutations are not retried automatically after a 429."""
     respx.put("https://api.example/v1/me/player/pause").mock(

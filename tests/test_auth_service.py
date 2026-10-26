@@ -9,7 +9,11 @@ import respx
 
 from tunetrail.auth.models import AuthorizationCallback, OAuthToken
 from tunetrail.auth.pkce import create_pkce_session
-from tunetrail.auth.service import SpotifyAuthenticator, SpotifyStateMismatchError
+from tunetrail.auth.service import (
+    SpotifyAuthenticator,
+    SpotifyNotAuthenticatedError,
+    SpotifyStateMismatchError,
+)
 from tunetrail.auth.store import FileCredentialStore
 
 
@@ -98,5 +102,30 @@ async def test_logout_removes_saved_token(tmp_path: Path) -> None:
         service = authenticator(tmp_path / "auth.json", client)
 
         await service.logout()
+
+    assert await store.load_token() is None
+
+
+@respx.mock
+async def test_revoked_refresh_token_is_removed_and_requires_sign_in(tmp_path: Path) -> None:
+    """A rejected refresh token cannot leave an unusable local session behind."""
+    store = FileCredentialStore(tmp_path / "auth.json")
+    await store.save_token(
+        OAuthToken(
+            access_token="expired-access-token",
+            refresh_token="revoked-refresh-token",
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+    )
+    respx.post("https://accounts.example/api/token").mock(
+        return_value=httpx.Response(
+            400,
+            json={"error": "invalid_grant", "error_description": "Refresh token revoked"},
+        )
+    )
+    async with httpx.AsyncClient() as client:
+        service = authenticator(tmp_path / "auth.json", client)
+        with pytest.raises(SpotifyNotAuthenticatedError, match="Sign in again"):
+            await service.access_token()
 
     assert await store.load_token() is None

@@ -9,7 +9,11 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Select, Static
 
-from tunetrail.auth.service import SpotifyAuthenticator, SpotifyNotAuthenticatedError
+from tunetrail.auth.service import (
+    SpotifyAuthenticator,
+    SpotifyAuthorizationError,
+    SpotifyNotAuthenticatedError,
+)
 from tunetrail.domain.models import Device, PlaybackState
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.errors import SpotifyApiError
@@ -158,7 +162,12 @@ class SpotifyControlApp(App[None]):
             return
         try:
             await self._spotify.select_device(self._selected_device_id)
-        except (SpotifyApiError, SpotifyPayloadError, SpotifyNotAuthenticatedError) as error:
+        except (
+            SpotifyApiError,
+            SpotifyAuthorizationError,
+            SpotifyPayloadError,
+            SpotifyNotAuthenticatedError,
+        ) as error:
             self._set_notice(str(error))
             return
         self._set_notice("Selected Spotify device")
@@ -173,7 +182,12 @@ class SpotifyControlApp(App[None]):
         method = getattr(self._spotify, method_name)
         try:
             await method(device_id=self._selected_device_id)
-        except (SpotifyApiError, SpotifyPayloadError, SpotifyNotAuthenticatedError) as error:
+        except (
+            SpotifyApiError,
+            SpotifyAuthorizationError,
+            SpotifyPayloadError,
+            SpotifyNotAuthenticatedError,
+        ) as error:
             self._set_notice(str(error))
             return
         await self._refresh_status()
@@ -191,7 +205,7 @@ class SpotifyControlApp(App[None]):
             self._set_status("Not signed in to Spotify")
             self._set_notice("Use Sign in to authorize TuneTrail")
             return
-        except (SpotifyApiError, SpotifyPayloadError) as error:
+        except (SpotifyApiError, SpotifyAuthorizationError, SpotifyPayloadError) as error:
             self._set_status("Spotify is unavailable")
             self._set_notice(str(error))
             return

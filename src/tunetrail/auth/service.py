@@ -104,14 +104,20 @@ class SpotifyAuthenticator:
         token = current_token or await self._credentials.load_token()
         if token is None:
             raise SpotifyNotAuthenticatedError("No Spotify refresh token is available")
-        return await self._request_token(
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": token.refresh_token,
-                "client_id": self._client_id,
-            },
-            refresh_token=token.refresh_token,
-        )
+        try:
+            return await self._request_token(
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": token.refresh_token,
+                    "client_id": self._client_id,
+                },
+                refresh_token=token.refresh_token,
+            )
+        except SpotifyAuthorizationError as error:
+            await self._credentials.clear()
+            raise SpotifyNotAuthenticatedError(
+                "Spotify authorization expired or was revoked. Sign in again."
+            ) from error
 
     async def logout(self) -> None:
         """Remove local Spotify OAuth token material."""
