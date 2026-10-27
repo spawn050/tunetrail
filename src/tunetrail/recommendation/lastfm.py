@@ -44,11 +44,15 @@ class LastfmEnrichmentService:
         del intent
         try:
             lastfm_profile = await self._profile()
+            track_seeds = _unique_candidates(
+                [
+                    *lastfm_profile.top_tracks[:2],
+                    *lastfm_profile.recent_tracks,
+                    *lastfm_profile.top_tracks,
+                ]
+            )[:_MAX_TRACK_SEEDS]
             expansions = await asyncio.gather(
-                *(
-                    self._similar_track_expansion(track)
-                    for track in lastfm_profile.top_tracks[:_MAX_TRACK_SEEDS]
-                ),
+                *(self._similar_track_expansion(track) for track in track_seeds),
                 *(
                     self._similar_artist_expansion(artist)
                     for artist in _unique(

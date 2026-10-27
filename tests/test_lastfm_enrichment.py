@@ -154,3 +154,30 @@ async def test_enrichment_imports_caches_tags_and_resolves_lastfm_suggestions() 
     assert [candidate.tags for candidate in candidates] == [["chill", "study"]]
     assert candidates[0].provenance["spotify_uri"] == "spotify:track:spotifysimilar"
     assert repeated == candidates
+
+
+async def test_recent_tracks_supply_a_bounded_distinct_similarity_seed() -> None:
+    """Recent listening contributes even when top-track history fills the seed budget."""
+    store = FakeStore()
+    store.profile = LastfmProfile(
+        top_tracks=[lastfm_candidate(title=f"Top {index}") for index in range(4)],
+        recent_tracks=[lastfm_candidate(title="Recent"), lastfm_candidate(title="Top 0")],
+        updated_at=datetime.now(UTC),
+    )
+    seeds: list[str] = []
+
+    class RecordingLastfm(FakeLastfm):
+        async def similar_tracks(
+            self, *, artist: str, title: str, limit: int = 10
+        ) -> Sequence[Candidate]:
+            seeds.append(title)
+            return []
+
+    service = LastfmEnrichmentService(
+        lastfm=cast(LastfmGateway, RecordingLastfm()),
+        resolver=SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify())),
+        store=cast(PersonalizationStore, store),
+        username="listener",
+    )
+    assert await service.find(intent(), None) == []
+    assert seeds == ["Top 0", "Top 1", "Recent"]
