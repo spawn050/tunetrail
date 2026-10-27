@@ -2,9 +2,12 @@
 
 import asyncio
 import fcntl
+import math
 import os
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote
@@ -113,6 +116,11 @@ class MusicBrainzClient:
             except httpx.HTTPError as error:
                 raise MusicBrainzError("MusicBrainz is unavailable.") from error
             if response.status_code == 503 and attempt == 0:
+                delay = _retry_after(response)
+                if delay > 5:
+                    raise MusicBrainzError("MusicBrainz is unavailable.")
+                if delay > 0:
+                    await asyncio.sleep(delay)
                 continue
             if response.status_code == 404 and allow_not_found:
                 return {"recordings": []}
@@ -130,6 +138,24 @@ class MusicBrainzClient:
 
 def _escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _retry_after(response: httpx.Response) -> float:
+    """Respect numeric and HTTP-date Retry-After values without indefinite waits."""
+    header = response.headers.get("Retry-After")
+    if header is None:
+        return 0.0
+    try:
+        value = float(header)
+        return max(value, 0.0) if math.isfinite(value) else math.inf
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(header)
+            if when.tzinfo is None:
+                return math.inf
+            return max((when - datetime.now(UTC)).total_seconds(), 0.0)
+        except (TypeError, ValueError, OverflowError):
+            return math.inf
 
 
 def _list(value: object) -> list[object]:

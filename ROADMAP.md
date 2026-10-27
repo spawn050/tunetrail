@@ -657,6 +657,8 @@ and release models. The User-Agent identifies the project repository. A shared
 lock in the TuneTrail cache directory coordinates requests and retries across local
 processes using that directory, spacing starts by at least one second. It cannot
 coordinate unrelated clients or TuneTrail instances with different cache directories.
+On `503`, bounded retries respect `Retry-After`; waits over five seconds fall back
+instead of retrying early or stalling the optional source indefinitely.
 Phase 6 acceptance remains outstanding.
 
 An isolated matcher now prefers matching ISRCs and otherwise requires normalized

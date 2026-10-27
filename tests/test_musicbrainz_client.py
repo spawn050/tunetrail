@@ -146,3 +146,19 @@ async def test_missing_isrc_is_empty(tmp_path: Path) -> None:
             )
             == []
         )
+
+
+async def test_long_retry_after_does_not_retry_early(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503, headers={"Retry-After": "60"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(MusicBrainzError):
+            await MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock")).search(
+                artist="Artist", title="Song"
+            )
+    assert calls == 1
