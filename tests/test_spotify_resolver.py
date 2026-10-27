@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 from typing import cast
 
+import pytest
+
 from tests.factories import candidate
 from tunetrail.domain.models import Candidate, CandidateSource
 from tunetrail.domain.protocols import SpotifyGateway
@@ -81,3 +83,37 @@ async def test_resolver_discards_ambiguous_or_low_confidence_spotify_results() -
         await SpotifyCandidateResolver(cast(SpotifyGateway, spotify)).resolve(lastfm_candidate())
         is None
     )
+
+
+@pytest.mark.parametrize(
+    ("title", "artist", "duration"),
+    [
+        ("Love Story Live", "Taylor Swift", 235_000),
+        ("Love Story", "Taylor Swift Tribute Band", 235_000),
+        ("Love Story", "Taylor Swift", 300_000),
+    ],
+)
+async def test_resolver_rejects_ambiguous_editions_artists_and_durations(
+    title: str, artist: str, duration: int
+) -> None:
+    """Superstrings and contradictory duration evidence are not sufficient matches."""
+    result = candidate(
+        title=title,
+        artists=[artist],
+        duration_ms=duration,
+        provenance={"spotify_uri": "spotify:track:wrong"},
+    )
+    resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify([result])))
+    assert await resolver.resolve(lastfm_candidate()) is None
+
+
+async def test_resolver_matches_non_ascii_names_without_collapsing_them() -> None:
+    """Names in non-Latin scripts remain distinguishable and can match exactly."""
+    result = candidate(
+        title="夜に駆ける",
+        artists=["東京"],
+        provenance={"spotify_uri": "spotify:track:unicode"},
+    )
+    resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify([result])))
+    assert await resolver.resolve(lastfm_candidate(title="別の曲", artists=["東京"])) is None
+    assert await resolver.resolve(lastfm_candidate(title="夜に駆ける", artists=["東京"])) is not None

@@ -1,7 +1,5 @@
 """Conservative resolution of optional external suggestions to Spotify tracks."""
 
-import re
-
 from tunetrail.domain.models import Candidate
 from tunetrail.domain.protocols import SpotifyGateway
 
@@ -59,19 +57,17 @@ def _match_confidence(external: Candidate, spotify: Candidate) -> float:
     if title_score < 0.9 or artist_score < 0.9:
         return 0.0
     duration_score = _duration_match(external.duration_ms, spotify.duration_ms)
+    if duration_score == 0.0:
+        return 0.0
     return 0.6 * title_score + 0.35 * artist_score + 0.05 * duration_score
 
 
 def _text_match(left: str, right: str) -> float:
-    """Favor exact normalized metadata, permitting only conservative edition suffix differences."""
+    """Require exact normalized metadata; ambiguous editions require further evidence."""
     normalized_left = _normal(left)
     normalized_right = _normal(right)
-    if normalized_left == normalized_right:
+    if normalized_left and normalized_left == normalized_right:
         return 1.0
-    if len(normalized_left) >= 5 and (
-        normalized_left in normalized_right or normalized_right in normalized_left
-    ):
-        return 0.9
     return 0.0
 
 
@@ -84,7 +80,7 @@ def _duration_match(external: int | None, spotify: int | None) -> float:
 
 def _normal(value: str) -> str:
     """Normalize punctuation and whitespace solely for conservative resolver comparisons."""
-    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+    return " ".join("".join(char if char.isalnum() else " " for char in value.casefold()).split())
 
 
 def _quoted(value: str) -> str:
