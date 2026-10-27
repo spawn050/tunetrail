@@ -670,9 +670,11 @@ class SpotifyControlApp(App[None]):
             SpotifyNotAuthenticatedError,
         ) as error:
             self._record_action(preview, ActionOutcome.FAILED)
+            await self._record_personalization_action(preview, ActionOutcome.FAILED)
             self._set_notice(f"Spotify action failed; it may have partially completed: {error}")
             return
         self._record_action(preview, ActionOutcome.SUCCEEDED)
+        await self._record_personalization_action(preview, ActionOutcome.SUCCEEDED)
         self._queue_preview = None
         self._update_queue_preview()
         self._set_notice("Spotify action completed.")
@@ -727,6 +729,31 @@ class SpotifyControlApp(App[None]):
         self._update_queue_preview()
         self._update_intent_summary(None)
         self._set_notice(notice)
+
+    async def _record_personalization_action(
+        self, preview: QueuePreview, outcome: ActionOutcome
+    ) -> None:
+        """Persist URI-only explicit-preview session data after its Spotify action resolves."""
+        store = self._personalization_store
+        if store is None:
+            return
+        try:
+            await store.record_action(
+                ActionHistoryEntry(
+                    action=preview.intent.action,
+                    spotify_uris=[item.track.spotify_uri for item in preview.items],
+                    device_id=self._selected_device_id,
+                    outcome=outcome,
+                    created_at=datetime.now(UTC),
+                ),
+                score_json=[
+                    json.dumps(item.track.score_breakdown, separators=(",", ":"))
+                    for item in preview.items
+                ],
+            )
+        except Exception:
+            # Spotify remains authoritative if optional local session persistence fails.
+            return
 
     @work(exclusive=True)
     async def sign_in(self) -> None:

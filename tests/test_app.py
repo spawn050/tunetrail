@@ -9,6 +9,7 @@ from textual.widgets import Button, Input, Select, Static
 
 from tests.factories import intent, resolved_track
 from tunetrail.domain.models import (
+    ActionHistoryEntry,
     CatalogItem,
     CatalogItemKind,
     CurrentQueue,
@@ -151,6 +152,7 @@ class FakePersonalizationStore:
     def __init__(self) -> None:
         self.signals: list[PlaylistSignal] = []
         self.feedback: list[Feedback] = []
+        self.actions: list[ActionHistoryEntry] = []
         self.was_reset = False
 
     async def playlist_signals(self) -> Sequence[PlaylistSignal]:
@@ -177,6 +179,13 @@ class FakePersonalizationStore:
             "profile": None,
             "feedback": [item.model_dump(mode="json") for item in self.feedback],
         }
+
+    async def record_action(
+        self, entry: ActionHistoryEntry, *, score_json: Sequence[str | None]
+    ) -> None:
+        """Capture URI-only action sessions after explicit approval."""
+        assert len(entry.spotify_uris) == len(score_json)
+        self.actions.append(entry)
 
 
 class FakeProfileService:
@@ -391,6 +400,34 @@ async def test_profile_controls_use_explicit_opt_in_feedback_reset_and_private_e
     assert store.was_reset
     assert spotify.started == []
     assert spotify.appended == []
+
+
+async def test_explicit_preview_records_a_local_session_only_after_confirmation() -> None:
+    """Explicit catalog playback writes URI history only after the user confirms the preview."""
+    spotify = FakeSpotify()
+    store = FakePersonalizationStore()
+    app = SpotifyControlApp(
+        spotify=cast(SpotifyClient, spotify),
+        personalization_store=cast(PersonalizationStore, store),
+    )
+
+    async with app.run_test(size=(100, 50)) as pilot:
+        await pilot.pause()
+        command = app.query_one("#command-input", Input)
+        command.value = "search track Track"
+        await pilot.press("enter")
+        await pilot.pause()
+        cast(
+            Select[str], app.query_one("#catalog-results", Select)
+        ).value = spotify.track.spotify_id
+        await pilot.pause()
+        await pilot.click("#preview-play")
+        await pilot.pause()
+        assert store.actions == []
+        await pilot.click("#confirm-preview")
+        await pilot.pause()
+
+    assert [entry.spotify_uris for entry in store.actions] == [[spotify.track.spotify_uri]]
 
 
 def test_catalog_commands_require_an_explicit_supported_type() -> None:
