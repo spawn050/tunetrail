@@ -139,6 +139,14 @@ class PersonalizationStore(
 
     async def reset(self) -> None: ...
 
+    async def export_data(self) -> dict[str, object]: ...
+
+
+class ProfileRefresher(Protocol):
+    """Refresh a compact local profile from allowed Spotify taste signals."""
+
+    async def refresh(self) -> ProfileSummary: ...
+
 
 class ActionHistoryRepository(Protocol):
     """Persist minimal confirmed playback-action records locally."""

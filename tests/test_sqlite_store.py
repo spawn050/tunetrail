@@ -86,3 +86,18 @@ async def test_store_cache_expiry_and_reset_are_transactional(tmp_path: Path) ->
     assert list(await store.recent()) == []
     assert list(await store.playlist_signals()) == []
     assert list(await store.recent_track_uris()) == []
+
+
+async def test_export_contains_only_application_owned_profile_signals(tmp_path: Path) -> None:
+    """Profile export omits credentials, raw requests, and upstream Spotify response payloads."""
+    store = SQLitePersonalizationStore(tmp_path / "tunetrail.sqlite3")
+    now = datetime.now(UTC)
+    await store.save(ProfileSummary(favorite_artists=["Artist"], updated_at=now))
+    await store.add(feedback())
+
+    exported = await store.export_data()
+
+    assert exported["profile"] is not None
+    assert exported["feedback"]
+    assert "credentials" not in exported
+    assert "requests" not in exported

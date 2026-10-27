@@ -10,6 +10,7 @@ from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.paths import AppPaths
 from tunetrail.persistence.action_history import FileActionHistory
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
+from tunetrail.recommendation.profile import SpotifyProfileService
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.tui.app import SpotifyControlApp
 
@@ -52,6 +53,9 @@ def build_app() -> SpotifyControlApp:
         action_history=FileActionHistory(paths.action_history_file),
         request_graph=request_graph,
         natural_language_error=natural_language_error,
+        personalization_store=personalization_store,
+        profile_service=SpotifyProfileService(spotify=spotify, store=personalization_store),
+        profile_export_path=paths.profile_export_file,
     )
 
 

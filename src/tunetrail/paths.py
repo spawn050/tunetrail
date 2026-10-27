@@ -29,6 +29,11 @@ class AppPaths:
         """Return the owner-only local playback-action history path."""
         return self.state_dir / "action-history.json"
 
+    @property
+    def profile_export_file(self) -> Path:
+        """Return the owner-only local export path for application-owned profile signals."""
+        return self.state_dir / "profile-export.json"
+
     @classmethod
     def default(cls, environ: dict[str, str] | None = None) -> "AppPaths":
         """Build XDG-aware paths, allowing explicit environment overrides."""

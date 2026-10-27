@@ -2,9 +2,10 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
-from textual.widgets import Input, Select, Static
+from textual.widgets import Button, Input, Select, Static
 
 from tests.factories import intent, resolved_track
 from tunetrail.domain.models import (
@@ -12,14 +13,18 @@ from tunetrail.domain.models import (
     CatalogItemKind,
     CurrentQueue,
     Device,
+    Feedback,
+    FeedbackKind,
     ListeningIntent,
     PlaybackAction,
     PlaybackState,
+    PlaylistSignal,
+    ProfileSummary,
     QueueItem,
     QueuePreview,
     ResolvedTrack,
 )
-from tunetrail.domain.protocols import RequestGraph
+from tunetrail.domain.protocols import PersonalizationStore, ProfileRefresher, RequestGraph
 from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.models import SpotifyUser
@@ -86,6 +91,17 @@ class FakeSpotify:
         assert limit == 10
         return [self.track]
 
+    async def user_playlists(self) -> Sequence[CatalogItem]:
+        """Return one eligible playlist for explicit local taste-signal opt-in."""
+        return [
+            CatalogItem(
+                kind=CatalogItemKind.PLAYLIST,
+                spotify_id="playlist-1",
+                spotify_uri="spotify:playlist:playlist-1",
+                title="Taste signals",
+            )
+        ]
+
     async def start_playback(
         self, spotify_uris: Sequence[str], *, device_id: str | None = None
     ) -> None:
@@ -127,6 +143,53 @@ class FakeRequestGraph:
         if decision is ApprovalDecision.EDIT:
             return RequestGraphResult(outcome=RequestOutcome.EDIT_REQUESTED)
         return RequestGraphResult(outcome=RequestOutcome.CANCELLED)
+
+
+class FakePersonalizationStore:
+    """In-memory local profile store for TUI feedback and profile-control coverage."""
+
+    def __init__(self) -> None:
+        self.signals: list[PlaylistSignal] = []
+        self.feedback: list[Feedback] = []
+        self.was_reset = False
+
+    async def playlist_signals(self) -> Sequence[PlaylistSignal]:
+        """Return selected playlist references only."""
+        return self.signals
+
+    async def replace(self, signals: Sequence[PlaylistSignal]) -> None:
+        """Capture changed playlist opt-ins."""
+        self.signals = list(signals)
+
+    async def add(self, item: Feedback) -> None:
+        """Capture explicit feedback for the current track."""
+        self.feedback.append(item)
+
+    async def reset(self) -> None:
+        """Clear only local fake personalization state."""
+        self.was_reset = True
+        self.signals = []
+        self.feedback = []
+
+    async def export_data(self) -> dict[str, object]:
+        """Return a privacy-bounded fake export payload."""
+        return {
+            "profile": None,
+            "feedback": [item.model_dump(mode="json") for item in self.feedback],
+        }
+
+
+class FakeProfileService:
+    """Return a deterministic compact profile without Spotify endpoint calls."""
+
+    async def refresh(self) -> ProfileSummary:
+        """Expose a profile summary that can be rendered by the TUI."""
+        return ProfileSummary(
+            favorite_artists=["Artist"],
+            favorite_track_uris=["spotify:track:4uLU6hMCjMI75M1A2tKUQC"],
+            recent_track_uris=[],
+            updated_at=datetime.now(UTC),
+        )
 
 
 def resolved_intent() -> ListeningIntent:
@@ -284,6 +347,48 @@ async def test_natural_preview_can_regenerate_then_cancel_without_mutation() -> 
         await pilot.pause()
 
     assert request_graph.decisions == [ApprovalDecision.REGENERATE, ApprovalDecision.CANCEL]
+    assert spotify.started == []
+    assert spotify.appended == []
+
+
+async def test_profile_controls_use_explicit_opt_in_feedback_reset_and_private_export(
+    tmp_path: Path,
+) -> None:
+    """Profile actions persist local signals only and never invoke Spotify player mutations."""
+    spotify = FakeSpotify()
+    store = FakePersonalizationStore()
+    export_path = tmp_path / "profile-export.json"
+    app = SpotifyControlApp(
+        spotify=cast(SpotifyClient, spotify),
+        personalization_store=cast(PersonalizationStore, store),
+        profile_service=cast(ProfileRefresher, FakeProfileService()),
+        profile_export_path=export_path,
+    )
+
+    async with app.run_test(size=(100, 50)) as pilot:
+        await pilot.pause()
+        app.query_one("#refresh-profile", Button).press()
+        await pilot.pause()
+        assert "1 artists" in str(app.query_one("#profile-summary", Static).render())
+        app.query_one("#load-profile-playlists", Button).press()
+        await pilot.pause()
+        playlist_select = cast(Select[str], app.query_one("#profile-playlists", Select))
+        playlist_select.value = "playlist-1"
+        await pilot.pause()
+        app.query_one("#toggle-playlist-signal", Button).press()
+        await pilot.pause()
+        assert [signal.spotify_playlist_id for signal in store.signals] == ["playlist-1"]
+        app.query_one("#feedback-like", Button).press()
+        await pilot.pause()
+        assert [item.kind for item in store.feedback] == [FeedbackKind.LIKE]
+        app.query_one("#export-profile", Button).press()
+        await pilot.pause()
+        assert export_path.exists()
+        assert export_path.stat().st_mode & 0o777 == 0o600
+        app.query_one("#reset-profile", Button).press()
+        await pilot.pause()
+
+    assert store.was_reset
     assert spotify.started == []
     assert spotify.appended == []
 

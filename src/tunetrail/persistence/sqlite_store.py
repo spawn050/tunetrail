@@ -174,6 +174,10 @@ class SQLitePersonalizationStore:
         """Delete application-owned personalization data without touching Spotify credentials."""
         await self._run(self._reset)
 
+    async def export_data(self) -> dict[str, object]:
+        """Return local signals only, never credentials or raw Spotify payloads."""
+        return await self._run(self._export_data)
+
     async def _run(self, operation: Callable[[sqlite3.Connection], _T]) -> _T:
         """Run a short transaction off the event loop using a fresh SQLite connection."""
         return await asyncio.to_thread(self._transaction, operation)
@@ -384,6 +388,20 @@ class SQLitePersonalizationStore:
         connection.execute("DELETE FROM playlist_signal")
         connection.execute("DELETE FROM listening_session")
         connection.execute("DELETE FROM cache_metadata")
+
+    @staticmethod
+    def _export_data(connection: sqlite3.Connection) -> dict[str, object]:
+        """Serialize privacy-bounded local state for user-requested profile export."""
+        profile = SQLitePersonalizationStore._get_profile(connection)
+        feedback = SQLitePersonalizationStore._recent_feedback(connection, 10_000)
+        signals = SQLitePersonalizationStore._playlist_signals(connection)
+        recent_sessions = SQLitePersonalizationStore._recent_track_uris(connection, 10_000)
+        return {
+            "profile": profile.model_dump(mode="json") if profile is not None else None,
+            "feedback": [item.model_dump(mode="json") for item in feedback],
+            "playlist_signals": [item.model_dump(mode="json") for item in signals],
+            "recent_generated_track_uris": recent_sessions,
+        }
 
 
 def _timestamp(value: datetime) -> str:

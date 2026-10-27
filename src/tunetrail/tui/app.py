@@ -1,8 +1,10 @@
 """Minimal Textual shell for Spotify authorization and player control."""
 
+import json
 import webbrowser
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
 import httpx
@@ -23,14 +25,19 @@ from tunetrail.domain.models import (
     CatalogItemKind,
     CurrentQueue,
     Device,
+    Feedback,
+    FeedbackKind,
     ListeningIntent,
     PlaybackAction,
     PlaybackState,
+    PlaylistSignal,
+    ProfileSummary,
     QueuePreview,
 )
-from tunetrail.domain.protocols import RequestGraph
+from tunetrail.domain.protocols import PersonalizationStore, ProfileRefresher, RequestGraph
 from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.persistence.action_history import ActionHistoryError, FileActionHistory
+from tunetrail.security import write_private_text
 from tunetrail.services.queue_preview import build_queue_preview
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.errors import SpotifyApiError
@@ -109,9 +116,12 @@ class SpotifyControlApp(App[None]):
 
     CSS = """
     #status, #device, #now-playing, #notice, #selection, #intent-summary { padding: 1; }
+    #profile-summary { padding: 1; }
     #queue-preview, #current-queue, #action-history, #shortcuts { padding: 1; }
     #controls Button { margin-right: 1; }
-    #catalog-actions Button, #preview-actions Button { margin-right: 1; }
+    #catalog-actions, #preview-actions, #profile-actions, #feedback-actions { height: 3; }
+    #catalog-actions Button, #preview-actions Button, #profile-actions Button { margin-right: 1; }
+    #feedback-actions Button { margin-right: 1; }
     Select { margin: 0 1; }
     Input { margin: 0 1; }
     """
@@ -127,6 +137,9 @@ class SpotifyControlApp(App[None]):
         action_history: FileActionHistory | None = None,
         request_graph: RequestGraph | None = None,
         natural_language_error: str | None = None,
+        personalization_store: PersonalizationStore | None = None,
+        profile_service: ProfileRefresher | None = None,
+        profile_export_path: Path | None = None,
     ) -> None:
         super().__init__()
         self._authenticator = authenticator
@@ -137,6 +150,9 @@ class SpotifyControlApp(App[None]):
         self._action_history = action_history
         self._request_graph = request_graph
         self._natural_language_error = natural_language_error
+        self._personalization_store = personalization_store
+        self._profile_service = profile_service
+        self._profile_export_path = profile_export_path
         self._selected_device_id: str | None = None
         self._updating_devices = False
         self._catalog_results: dict[str, CatalogItem] = {}
@@ -144,6 +160,8 @@ class SpotifyControlApp(App[None]):
         self._queue_preview: QueuePreview | None = None
         self._natural_request: str | None = None
         self._playback: PlaybackState | None = None
+        self._profile_playlists: dict[str, CatalogItem] = {}
+        self._selected_profile_playlist_id: str | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the keyboard-first Phase 2 queue workflow."""
@@ -188,6 +206,23 @@ class SpotifyControlApp(App[None]):
             yield Static("Current queue: unavailable", id="current-queue")
             yield Static("Action history: none", id="action-history")
             yield Static("", id="notice")
+            yield Static("Taste profile: not refreshed", id="profile-summary")
+            with Horizontal(id="profile-actions"):
+                yield Button("Refresh taste profile", id="refresh-profile")
+                yield Button("Load my playlists", id="load-profile-playlists")
+                yield Button("Toggle playlist signal", id="toggle-playlist-signal")
+                yield Button("Export profile", id="export-profile")
+                yield Button("Reset profile", id="reset-profile", variant="error")
+            yield Select[str](
+                [], prompt="Select an owned/collaborative playlist signal", id="profile-playlists"
+            )
+            with Horizontal(id="feedback-actions"):
+                yield Button("Like current", id="feedback-like")
+                yield Button("Dislike current", id="feedback-dislike")
+                yield Button("More like current", id="feedback-more")
+                yield Button("Less like current", id="feedback-less")
+                yield Button("Too familiar", id="feedback-familiar")
+                yield Button("Too distracting", id="feedback-distracting")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -276,6 +311,11 @@ class SpotifyControlApp(App[None]):
                 f"Selected: {self._selected_catalog_item.title}"
             )
 
+    @on(Select.Changed, "#profile-playlists")
+    def select_profile_playlist(self, event: Select.Changed) -> None:
+        """Remember the playlist the listener may explicitly opt into as a taste signal."""
+        self._selected_profile_playlist_id = event.value if isinstance(event.value, str) else None
+
     @on(Button.Pressed, "#preview-play")
     def preview_play_button(self) -> None:
         """Prepare a reviewable play-now preview for the selected catalog result."""
@@ -305,6 +345,50 @@ class SpotifyControlApp(App[None]):
     def regenerate_preview_button(self) -> None:
         """Re-run deterministic candidate selection for a natural preview."""
         self.regenerate_natural_preview()
+
+    @on(Button.Pressed, "#refresh-profile")
+    def refresh_profile_button(self) -> None:
+        """Refresh compact local Spotify taste signals only when the user asks."""
+        self.refresh_profile()
+
+    @on(Button.Pressed, "#load-profile-playlists")
+    def load_profile_playlists_button(self) -> None:
+        """Load eligible Spotify playlists so the user can explicitly select taste signals."""
+        self.load_profile_playlists()
+
+    @on(Button.Pressed, "#toggle-playlist-signal")
+    def toggle_playlist_signal_button(self) -> None:
+        """Add or remove the selected playlist from local profile ingestion choices."""
+        self.toggle_playlist_signal()
+
+    @on(Button.Pressed, "#export-profile")
+    def export_profile_button(self) -> None:
+        """Write a private local export of application-owned profile signals."""
+        self.export_profile()
+
+    @on(Button.Pressed, "#reset-profile")
+    def reset_profile_button(self) -> None:
+        """Clear only local personalization signals, not Spotify credentials."""
+        self.reset_profile()
+
+    @on(Button.Pressed, "#feedback-like")
+    @on(Button.Pressed, "#feedback-dislike")
+    @on(Button.Pressed, "#feedback-more")
+    @on(Button.Pressed, "#feedback-less")
+    @on(Button.Pressed, "#feedback-familiar")
+    @on(Button.Pressed, "#feedback-distracting")
+    def feedback_button(self, event: Button.Pressed) -> None:
+        """Record explicit preference feedback for the currently playing Spotify track."""
+        kind_by_button = {
+            "feedback-like": FeedbackKind.LIKE,
+            "feedback-dislike": FeedbackKind.DISLIKE,
+            "feedback-more": FeedbackKind.MORE_LIKE_THIS,
+            "feedback-less": FeedbackKind.LESS_LIKE_THIS,
+            "feedback-familiar": FeedbackKind.TOO_FAMILIAR,
+            "feedback-distracting": FeedbackKind.TOO_DISTRACTING,
+        }
+        if event.button.id is not None:
+            self.record_current_feedback(kind_by_button[event.button.id])
 
     def action_focus_command(self) -> None:
         """Focus the explicit catalog command input."""
@@ -403,6 +487,129 @@ class SpotifyControlApp(App[None]):
             self._set_notice("There is no natural-language preview to regenerate.")
             return
         self.resume_natural_request(ApprovalDecision.REGENERATE)
+
+    @work(exclusive=True)
+    async def refresh_profile(self) -> None:
+        """Refresh local profile signals from Spotify without changing playback or queues."""
+        if self._profile_service is None:
+            self._set_notice("Spotify personalization is not configured.")
+            return
+        try:
+            profile = await self._profile_service.refresh()
+        except (
+            SpotifyApiError,
+            SpotifyAuthorizationError,
+            SpotifyPayloadError,
+            SpotifyNotAuthenticatedError,
+        ) as error:
+            self._set_notice(f"Taste profile refresh failed: {error}")
+            return
+        self._update_profile_summary(profile)
+        self._set_notice("Taste profile refreshed from Spotify signals.")
+
+    @work(exclusive=True)
+    async def load_profile_playlists(self) -> None:
+        """List only Spotify playlists eligible for explicit local taste-signal opt-in."""
+        if self._spotify is None:
+            self._set_notice(self._configuration_error or "Spotify is not configured")
+            return
+        try:
+            playlists = await self._spotify.user_playlists()
+        except (
+            SpotifyApiError,
+            SpotifyAuthorizationError,
+            SpotifyPayloadError,
+            SpotifyNotAuthenticatedError,
+        ) as error:
+            self._set_notice(f"Could not load Spotify playlists: {error}")
+            return
+        self._profile_playlists = {playlist.spotify_id: playlist for playlist in playlists}
+        select = cast(Select[str], self.query_one("#profile-playlists", Select))
+        select.set_options([(playlist.title, playlist.spotify_id) for playlist in playlists])
+        self._selected_profile_playlist_id = None
+        self._set_notice(
+            "Select an owned or collaborative playlist, then toggle it as a local taste signal."
+            if playlists
+            else "No eligible Spotify playlists were returned."
+        )
+
+    @work(exclusive=True)
+    async def toggle_playlist_signal(self) -> None:
+        """Persist the selected playlist reference, never its full playlist contents."""
+        store = self._personalization_store
+        playlist_id = self._selected_profile_playlist_id
+        playlist = self._profile_playlists.get(playlist_id) if playlist_id is not None else None
+        if store is None:
+            self._set_notice("Spotify personalization is not configured.")
+            return
+        if playlist is None:
+            self._set_notice("Select a Spotify playlist before changing taste signals.")
+            return
+        current = list(await store.playlist_signals())
+        already_selected = next(
+            (signal for signal in current if signal.spotify_playlist_id == playlist.spotify_id),
+            None,
+        )
+        if already_selected is None:
+            current.append(
+                PlaylistSignal(
+                    spotify_playlist_id=playlist.spotify_id,
+                    display_name=playlist.title,
+                    selected_at=datetime.now(UTC),
+                )
+            )
+            message = (
+                f"Added '{playlist.title}' as a taste signal. Refresh your profile to ingest it."
+            )
+        else:
+            current.remove(already_selected)
+            message = f"Removed '{playlist.title}' from taste signals."
+        await store.replace(current)
+        self._set_notice(message)
+
+    @work(exclusive=True)
+    async def record_current_feedback(self, kind: FeedbackKind) -> None:
+        """Persist current-track preference feedback without a playback mutation."""
+        store = self._personalization_store
+        track = self._playback.track if self._playback is not None else None
+        if store is None:
+            self._set_notice("Spotify personalization is not configured.")
+            return
+        if track is None:
+            self._set_notice("Start a Spotify track before recording feedback.")
+            return
+        await store.add(
+            Feedback(kind=kind, spotify_uri=track.spotify_uri, created_at=datetime.now(UTC))
+        )
+        self._set_notice(f"Recorded '{kind.value.replace('_', ' ')}' feedback for {track.title}.")
+
+    @work(exclusive=True)
+    async def reset_profile(self) -> None:
+        """Clear local profile/feedback/session data while preserving Spotify authorization."""
+        store = self._personalization_store
+        if store is None:
+            self._set_notice("Spotify personalization is not configured.")
+            return
+        await store.reset()
+        self._profile_playlists = {}
+        self._selected_profile_playlist_id = None
+        cast(Select[str], self.query_one("#profile-playlists", Select)).set_options([])
+        self._update_profile_summary(None)
+        self._set_notice(
+            "Local taste profile, feedback, sessions, and playlist signals were reset."
+        )
+
+    @work(exclusive=True)
+    async def export_profile(self) -> None:
+        """Export local application-owned profile signals to an owner-only JSON file."""
+        store = self._personalization_store
+        path = self._profile_export_path
+        if store is None or path is None:
+            self._set_notice("Spotify personalization export is not configured.")
+            return
+        data = await store.export_data()
+        write_private_text(path, json.dumps(data, indent=2, sort_keys=True))
+        self._set_notice(f"Local profile export saved to {path}.")
 
     @work(exclusive=True)
     async def preview_selection(self, action: PlaybackAction) -> None:
@@ -721,6 +928,19 @@ class SpotifyControlApp(App[None]):
             constraints.append("non-explicit")
         constraints.append(f"up to {intent.queue_size} tracks")
         widget.update(f"Listening intent: {'; '.join(constraints)}")
+
+    def _update_profile_summary(self, profile: ProfileSummary | None) -> None:
+        """Render only compact local taste-signal counts, never raw listening-history details."""
+        widget = self.query_one("#profile-summary", Static)
+        if profile is None:
+            widget.update("Taste profile: not refreshed")
+            return
+        widget.update(
+            "Taste profile: "
+            f"{len(profile.favorite_artists)} artists, "
+            f"{len(profile.favorite_track_uris)} top-track signals, "
+            f"{len(profile.recent_track_uris)} recent-play signals."
+        )
 
     def _record_action(self, preview: QueuePreview, outcome: ActionOutcome) -> None:
         """Record confirmation outcomes without retaining queries or catalog copies."""
