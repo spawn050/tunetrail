@@ -10,7 +10,9 @@ from typing import TypeVar, cast
 
 from tunetrail.domain.models import (
     ActionHistoryEntry,
+    Candidate,
     Feedback,
+    LastfmProfile,
     PlaylistSignal,
     ProfileSummary,
 )
@@ -62,6 +64,14 @@ _MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX session_track_by_uri ON session_track (spotify_uri);
     CREATE TABLE cache_metadata (
         cache_key TEXT PRIMARY KEY,
+        refreshed_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    );
+    """,
+    """
+    CREATE TABLE lastfm_cache (
+        cache_key TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
         refreshed_at TEXT NOT NULL,
         expires_at TEXT NOT NULL
     );
@@ -178,9 +188,61 @@ class SQLitePersonalizationStore:
         """Return local signals only, never credentials or raw Spotify payloads."""
         return await self._run(self._export_data)
 
+    async def lastfm_profile(self, *, now: datetime) -> LastfmProfile | None:
+        """Return a fresh bounded normalized Last.fm profile, never a raw API response."""
+        return await self._run(lambda connection: self._lastfm_profile(connection, now))
+
+    async def save_lastfm_profile(
+        self, profile: LastfmProfile, *, refreshed_at: datetime, expires_at: datetime
+    ) -> None:
+        """Cache one normalized Last.fm profile under a short explicit expiry window."""
+        await self._save_lastfm_payload(
+            "lastfm:profile", profile.model_dump(mode="json"), refreshed_at, expires_at
+        )
+
+    async def lastfm_candidates(
+        self, cache_key: str, *, now: datetime
+    ) -> Sequence[Candidate] | None:
+        """Return fresh normalized Last.fm candidate expansions for one opaque cache key."""
+        return await self._run(
+            lambda connection: self._lastfm_candidates(connection, cache_key, now)
+        )
+
+    async def save_lastfm_candidates(
+        self,
+        cache_key: str,
+        candidates: Sequence[Candidate],
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        """Cache a bounded normalized Last.fm candidate set with no raw source response."""
+        await self._save_lastfm_payload(
+            cache_key,
+            {"candidates": [candidate.model_dump(mode="json") for candidate in candidates]},
+            refreshed_at,
+            expires_at,
+        )
+
     async def _run(self, operation: Callable[[sqlite3.Connection], _T]) -> _T:
         """Run a short transaction off the event loop using a fresh SQLite connection."""
         return await asyncio.to_thread(self._transaction, operation)
+
+    async def _save_lastfm_payload(
+        self,
+        cache_key: str,
+        payload: dict[str, object],
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        """Validate expiry then persist one JSON-safe normalized Last.fm cache record."""
+        if expires_at < refreshed_at:
+            raise ValueError("cache expiry cannot precede refresh time")
+        await self._run(
+            lambda connection: self._save_lastfm_payload_transaction(
+                connection, cache_key, payload, refreshed_at, expires_at
+            )
+        )
 
     def _transaction(self, operation: Callable[[sqlite3.Connection], _T]) -> _T:
         """Commit one repository operation or roll it back on every failure."""
@@ -268,6 +330,59 @@ class SQLitePersonalizationStore:
                 expires_at = excluded.expires_at
             """,
             ("profile-summary", _timestamp(refreshed_at), _timestamp(expires_at)),
+        )
+
+    @staticmethod
+    def _lastfm_profile(connection: sqlite3.Connection, now: datetime) -> LastfmProfile | None:
+        payload = SQLitePersonalizationStore._lastfm_payload(connection, "lastfm:profile", now)
+        return LastfmProfile.model_validate(payload) if payload is not None else None
+
+    @staticmethod
+    def _lastfm_candidates(
+        connection: sqlite3.Connection, cache_key: str, now: datetime
+    ) -> list[Candidate] | None:
+        payload = SQLitePersonalizationStore._lastfm_payload(connection, cache_key, now)
+        if payload is None:
+            return None
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list):
+            raise ValueError("TuneTrail database contained invalid Last.fm candidates")
+        return [Candidate.model_validate(item) for item in cast(list[object], candidates)]
+
+    @staticmethod
+    def _lastfm_payload(
+        connection: sqlite3.Connection, cache_key: str, now: datetime
+    ) -> dict[str, object] | None:
+        row = connection.execute(
+            "SELECT payload_json, expires_at FROM lastfm_cache WHERE cache_key = ?", (cache_key,)
+        ).fetchone()
+        if row is None or _datetime(row["expires_at"]) < now:
+            return None
+        return _json_object(row["payload_json"])
+
+    @staticmethod
+    def _save_lastfm_payload_transaction(
+        connection: sqlite3.Connection,
+        cache_key: str,
+        payload: dict[str, object],
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO lastfm_cache (cache_key, payload_json, refreshed_at, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                refreshed_at = excluded.refreshed_at,
+                expires_at = excluded.expires_at
+            """,
+            (
+                cache_key,
+                json.dumps(payload, separators=(",", ":")),
+                _timestamp(refreshed_at),
+                _timestamp(expires_at),
+            ),
         )
 
     @staticmethod
@@ -388,6 +503,7 @@ class SQLitePersonalizationStore:
         connection.execute("DELETE FROM playlist_signal")
         connection.execute("DELETE FROM listening_session")
         connection.execute("DELETE FROM cache_metadata")
+        connection.execute("DELETE FROM lastfm_cache")
 
     @staticmethod
     def _export_data(connection: sqlite3.Connection) -> dict[str, object]:
@@ -435,3 +551,13 @@ def _string_list(value: object) -> list[str]:
     if not all(isinstance(item, str) for item in items):
         raise ValueError("TuneTrail database contained an invalid string list")
     return cast(list[str], items)
+
+
+def _json_object(value: object) -> dict[str, object]:
+    """Deserialize a normalized JSON object from private application-owned cache state."""
+    if not isinstance(value, str):
+        raise ValueError("TuneTrail database contained invalid Last.fm cache data")
+    decoded: object = json.loads(value)
+    if not isinstance(decoded, dict):
+        raise ValueError("TuneTrail database contained invalid Last.fm cache data")
+    return cast(dict[str, object], decoded)

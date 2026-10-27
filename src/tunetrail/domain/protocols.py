@@ -12,6 +12,7 @@ from tunetrail.domain.models import (
     CurrentQueue,
     Device,
     Feedback,
+    LastfmProfile,
     ListeningIntent,
     PlaybackState,
     PlaylistSignal,
@@ -162,6 +163,25 @@ class PersonalizationStore(
     async def reset(self) -> None: ...
 
     async def export_data(self) -> dict[str, object]: ...
+
+    async def lastfm_profile(self, *, now: datetime) -> LastfmProfile | None: ...
+
+    async def save_lastfm_profile(
+        self, profile: LastfmProfile, *, refreshed_at: datetime, expires_at: datetime
+    ) -> None: ...
+
+    async def lastfm_candidates(
+        self, cache_key: str, *, now: datetime
+    ) -> Sequence[Candidate] | None: ...
+
+    async def save_lastfm_candidates(
+        self,
+        cache_key: str,
+        candidates: Sequence[Candidate],
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None: ...
 
 
 class ProfileRefresher(Protocol):

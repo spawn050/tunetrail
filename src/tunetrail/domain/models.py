@@ -280,4 +280,15 @@ class PlaylistSignal(BaseModel):
     last_ingested_at: AwareDatetime | None = None
 
 
+class LastfmProfile(BaseModel):
+    """Bounded normalized public Last.fm signals for optional local enrichment."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    top_artists: list[NonEmptyText] = Field(default_factory=list)
+    top_tracks: list[Candidate] = Field(default_factory=list[Candidate])
+    recent_tracks: list[Candidate] = Field(default_factory=list[Candidate])
+    updated_at: AwareDatetime
+
+
 Timestamp = datetime
