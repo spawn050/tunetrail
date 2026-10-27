@@ -409,6 +409,12 @@ queue mutation require explicit approval. These phase gates are not policy clear
 
 **Phase gate:** an inspectable local profile uses explicit inputs without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion.
 
+**In progress:** an isolated explicit-preference table, structured chat parser and
+profile service have been added and tested offline. They are not yet wired into the
+application. The existing runtime still uses legacy Spotify-derived personalization
+and can send Spotify-derived candidate metadata to MusicBrainz. See
+`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
+
 ### Phase 4S — Candidate discovery and ReccoBeats enrichment
 
 **Goal:** generate independently identified candidates and enrich them with available ReccoBeats audio-feature estimates.
