@@ -29,6 +29,9 @@ class Settings(BaseModel):
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     llm_allow_data_collection: bool = False
     openrouter_api_key: str | None = None
+    lastfm_api_key: str | None = None
+    lastfm_username: str | None = None
+    lastfm_api_url: str = "https://ws.audioscrobbler.com/2.0/"
     request_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

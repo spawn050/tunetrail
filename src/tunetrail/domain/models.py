@@ -116,12 +116,19 @@ class Candidate(BaseModel):
     year: int | None = Field(default=None, ge=1860, le=2100)
     explicit: bool | None = None
     source_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    tags: list[NonEmptyText] = Field(default_factory=list)
     provenance: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("artists")
     @classmethod
     def unique_artists(cls, values: list[str]) -> list[str]:
         """Normalize duplicate artist names without changing their order."""
+        return list(dict.fromkeys(value.strip() for value in values))
+
+    @field_validator("tags")
+    @classmethod
+    def unique_tags(cls, values: list[str]) -> list[str]:
+        """Normalize optional community tags without changing their supplied order."""
         return list(dict.fromkeys(value.strip() for value in values))
 
 
