@@ -86,6 +86,15 @@ class MusicBrainzClient:
         payload = await self._get(
             f"isrc/{isrc.upper()}", {"inc": "artist-credits+releases+isrcs"}, allow_not_found=True
         )
+        items = payload.get("recordings")
+        if not isinstance(items, list):
+            raise MusicBrainzError("MusicBrainz returned incomplete ISRC results.")
+        item_count = len(cast(list[object], items))
+        total = payload.get("recording-count")
+        if item_count >= 25 or (
+            total is not None and (type(total) is not int or total != item_count)
+        ):
+            raise MusicBrainzError("MusicBrainz returned incomplete ISRC results.")
         # The endpoint itself proves the ISRC association even if the response omits isrcs.
         return [
             recording.model_copy(

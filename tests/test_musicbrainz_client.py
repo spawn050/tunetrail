@@ -170,6 +170,27 @@ async def test_missing_isrc_is_empty(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"recordings": "invalid"},
+        {"recording-count": 2, "recordings": [{"id": "one", "title": "Song"}]},
+        {"recording-count": True, "recordings": [{"id": "one", "title": "Song"}]},
+        {"recordings": [{"id": str(index), "title": "Song"} for index in range(25)]},
+    ],
+)
+async def test_incomplete_isrc_response_is_not_a_matchable_or_empty_result(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    ) as http:
+        client = MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock"))
+        with pytest.raises(MusicBrainzError, match="incomplete ISRC"):
+            await client.by_isrc("USABC1234567")
+
+
 async def test_long_retry_after_does_not_retry_early(tmp_path: Path) -> None:
     calls = 0
 
