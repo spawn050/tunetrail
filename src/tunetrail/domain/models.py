@@ -54,6 +54,13 @@ class FeedbackKind(StrEnum):
     TOO_DISTRACTING = "too_distracting"
 
 
+class ActionOutcome(StrEnum):
+    """The local result of a confirmed Spotify player action."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
@@ -208,6 +215,27 @@ class CurrentQueue(BaseModel):
 
     current: ResolvedTrack | None = None
     upcoming: list[ResolvedTrack] = Field(default_factory=list[ResolvedTrack])
+
+
+class ActionHistoryEntry(BaseModel):
+    """Minimal local record of a confirmed playback action."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: PlaybackAction
+    spotify_uris: list[str] = Field(min_length=1)
+    device_id: str | None = None
+    outcome: ActionOutcome
+    created_at: AwareDatetime
+
+    @field_validator("spotify_uris")
+    @classmethod
+    def validate_track_uris(cls, values: list[str]) -> list[str]:
+        """Retain unique playable track URIs only."""
+        unique = list(dict.fromkeys(values))
+        if any(not uri.startswith("spotify:track:") for uri in unique):
+            raise ValueError("action history can contain only Spotify track URIs")
+        return unique
 
 
 class Feedback(BaseModel):

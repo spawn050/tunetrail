@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from tunetrail.domain.models import (
+    ActionHistoryEntry,
     Candidate,
     CatalogItem,
     CatalogItemKind,
@@ -79,6 +80,14 @@ class FeedbackRepository(Protocol):
     async def add(self, feedback: Feedback) -> None: ...
 
     async def recent(self, *, limit: int = 100) -> Sequence[Feedback]: ...
+
+
+class ActionHistoryRepository(Protocol):
+    """Persist minimal confirmed playback-action records locally."""
+
+    def record(self, entry: ActionHistoryEntry) -> None: ...
+
+    def recent(self, *, limit: int = 20) -> Sequence[ActionHistoryEntry]: ...
 
 
 class CandidateSourceProvider(Protocol):

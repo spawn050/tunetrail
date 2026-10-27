@@ -29,6 +29,11 @@ class AppPaths:
         """Return the SQLite database location."""
         return self.data_dir / "tunetrail.sqlite3"
 
+    @property
+    def action_history_file(self) -> Path:
+        """Return the owner-only local playback-action history path."""
+        return self.state_dir / "action-history.json"
+
     @classmethod
     def default(cls, environ: dict[str, str] | None = None) -> "AppPaths":
         """Build XDG-aware paths, allowing explicit environment overrides."""
