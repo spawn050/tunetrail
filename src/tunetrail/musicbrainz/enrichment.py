@@ -21,6 +21,7 @@ class MusicBrainzEnrichment:
     def __init__(self, lookup: CachedLookup) -> None:
         self._lookup = lookup
         self._task: asyncio.Task[None] | None = None
+        self._cursor = 0
 
     async def enrich(self, candidates: Sequence[Candidate]) -> list[Candidate]:
         """Do not wait for network, and never alter Spotify identity or playback metadata."""
@@ -37,7 +38,13 @@ class MusicBrainzEnrichment:
             else:
                 result.append(_apply(candidate, match))
         if misses and (self._task is None or self._task.done()):
-            self._task = asyncio.create_task(self._refresh(misses[:3]))
+            # Rotate through misses across requests so repeatedly unresolved early
+            # candidates cannot starve later candidates forever.
+            start = self._cursor % len(misses)
+            rotated = misses[start:] + misses[:start]
+            batch = rotated[:3]
+            self._cursor = (start + len(batch)) % len(misses)
+            self._task = asyncio.create_task(self._refresh(batch))
         return result
 
     async def _refresh(self, candidates: Sequence[Candidate]) -> None:

@@ -111,6 +111,28 @@ async def test_cache_miss_returns_without_network_wait() -> None:
     await asyncio.sleep(0)
 
 
+async def test_unresolvable_candidates_do_not_starve_later_refreshes() -> None:
+    class ImmediateLookup:
+        def __init__(self) -> None:
+            self.visited: list[str] = []
+
+        async def cached(self, candidate: Candidate) -> RecordingMatch | None:
+            return None
+
+        async def refresh(self, candidate: Candidate) -> RecordingMatch | None:
+            self.visited.append(candidate.source_id)
+            return None
+
+    lookup = ImmediateLookup()
+    service = MusicBrainzEnrichment(lookup)
+    candidates = [playable_candidate(source_id=str(index)) for index in range(6)]
+    await service.enrich(candidates)
+    await asyncio.sleep(0)
+    await service.enrich(candidates)
+    await asyncio.sleep(0)
+    assert lookup.visited == ["0", "1", "2", "3", "4", "5"]
+
+
 async def test_metadata_failure_preserves_preview() -> None:
     class Failure:
         async def enrich(self, candidates: Sequence[Candidate]) -> Sequence[Candidate]:

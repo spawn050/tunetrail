@@ -674,6 +674,8 @@ Normalized successful recording matches can now be cached for 30 days using
 hashed matching-evidence keys, with a 1,000-entry cap and profile-reset cleanup.
 Failures and ambiguous misses are not cached. Opt-in graph integration reads cached
 matches before ranking and refreshes up to three cache misses in the background.
+Successive refresh batches rotate through unresolved candidates so early misses
+do not indefinitely starve later candidates.
 A missing year is filled only for an explicitly complete MusicBrainz release list
 with exactly one matching album title and a valid date, excluding common edition
 markers. Responses without a release count are treated as incomplete. The queue explains this year
