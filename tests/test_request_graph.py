@@ -109,6 +109,16 @@ class FakeLastfmEnrichment:
         ]
 
 
+class UnavailableLastfmEnrichment:
+    """Simulate an unexpected optional-source outage at the graph boundary."""
+
+    async def find(
+        self, parsed: ListeningIntent, profile: ProfileSummary | None
+    ) -> Sequence[Candidate]:
+        """Fail without making any Spotify player calls."""
+        raise RuntimeError("Last.fm unavailable")
+
+
 def playable_candidate(**changes: object) -> Candidate:
     """Build a playable direct Spotify search result."""
     values: dict[str, object] = {
@@ -137,6 +147,27 @@ async def test_graph_interrupts_before_approved_playback() -> None:
     assert result.outcome is RequestOutcome.PREVIEW_READY
     assert result.preview is not None
     assert spotify.started == []
+
+
+async def test_graph_lastfm_outage_preserves_spotify_preview_and_approval() -> None:
+    """An enrichment failure falls back to Spotify and cancellation never mutates playback."""
+    spotify = FakeSpotify([playable_candidate()])
+    store = FakePersonalizationStore()
+    graph = NaturalLanguageRequestGraph(
+        parser=FakeParser(intent(moods=["peaceful"])),
+        spotify=cast(SpotifyGateway, spotify),
+        store=cast(PersonalizationStore, store),
+        lastfm_enrichment=cast(CandidateSourceProvider, UnavailableLastfmEnrichment()),
+    )
+
+    result = await graph.start("Play something peaceful", device_id="device-1")
+
+    assert result.outcome is RequestOutcome.PREVIEW_READY
+    assert result.preview is not None
+    assert [item.track.spotify_uri for item in result.preview.items] == ["spotify:track:track1"]
+    assert not spotify.started and not spotify.appended and not store.recorded
+    assert (await graph.resume(ApprovalDecision.CANCEL)).outcome is RequestOutcome.CANCELLED
+    assert not spotify.started and not spotify.appended and not store.recorded
     assert spotify.appended == []
 
 
