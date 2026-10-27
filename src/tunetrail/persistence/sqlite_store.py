@@ -188,16 +188,21 @@ class SQLitePersonalizationStore:
         """Return local signals only, never credentials or raw Spotify payloads."""
         return await self._run(self._export_data)
 
-    async def lastfm_profile(self, *, now: datetime) -> LastfmProfile | None:
+    async def lastfm_profile(self, cache_key: str, *, now: datetime) -> LastfmProfile | None:
         """Return a fresh bounded normalized Last.fm profile, never a raw API response."""
-        return await self._run(lambda connection: self._lastfm_profile(connection, now))
+        return await self._run(lambda connection: self._lastfm_profile(connection, cache_key, now))
 
     async def save_lastfm_profile(
-        self, profile: LastfmProfile, *, refreshed_at: datetime, expires_at: datetime
+        self,
+        cache_key: str,
+        profile: LastfmProfile,
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
     ) -> None:
         """Cache one normalized Last.fm profile under a short explicit expiry window."""
         await self._save_lastfm_payload(
-            "lastfm:profile", profile.model_dump(mode="json"), refreshed_at, expires_at
+            cache_key, profile.model_dump(mode="json"), refreshed_at, expires_at
         )
 
     async def lastfm_candidates(
@@ -333,8 +338,10 @@ class SQLitePersonalizationStore:
         )
 
     @staticmethod
-    def _lastfm_profile(connection: sqlite3.Connection, now: datetime) -> LastfmProfile | None:
-        payload = SQLitePersonalizationStore._lastfm_payload(connection, "lastfm:profile", now)
+    def _lastfm_profile(
+        connection: sqlite3.Connection, cache_key: str, now: datetime
+    ) -> LastfmProfile | None:
+        payload = SQLitePersonalizationStore._lastfm_payload(connection, cache_key, now)
         return LastfmProfile.model_validate(payload) if payload is not None else None
 
     @staticmethod

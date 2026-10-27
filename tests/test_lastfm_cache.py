@@ -21,7 +21,9 @@ async def test_store_caches_bounded_normalized_lastfm_profile_and_candidates(
     )
     candidates = [candidate(source=CandidateSource.LASTFM, source_id="artist:similar")]
 
-    await store.save_lastfm_profile(profile, refreshed_at=now, expires_at=now + timedelta(hours=6))
+    await store.save_lastfm_profile(
+        "lastfm:profile:listener", profile, refreshed_at=now, expires_at=now + timedelta(hours=6)
+    )
     await store.save_lastfm_candidates(
         "lastfm:similar:artist:track",
         candidates,
@@ -29,7 +31,7 @@ async def test_store_caches_bounded_normalized_lastfm_profile_and_candidates(
         expires_at=now + timedelta(hours=1),
     )
 
-    cached_profile = await store.lastfm_profile(now=now)
+    cached_profile = await store.lastfm_profile("lastfm:profile:listener", now=now)
     cached_candidates = await store.lastfm_candidates("lastfm:similar:artist:track", now=now)
 
     assert cached_profile == profile
@@ -42,10 +44,13 @@ async def test_lastfm_cache_expiry_and_reset_remove_optional_source_data(tmp_pat
     now = datetime.now(UTC)
     profile = LastfmProfile(updated_at=now)
     await store.save_lastfm_profile(
-        profile, refreshed_at=now, expires_at=now + timedelta(minutes=1)
+        "lastfm:profile:listener", profile, refreshed_at=now, expires_at=now + timedelta(minutes=1)
     )
 
-    assert await store.lastfm_profile(now=now + timedelta(minutes=2)) is None
+    assert (
+        await store.lastfm_profile("lastfm:profile:listener", now=now + timedelta(minutes=2))
+        is None
+    )
     await store.reset()
 
-    assert await store.lastfm_profile(now=now) is None
+    assert await store.lastfm_profile("lastfm:profile:listener", now=now) is None

@@ -164,10 +164,15 @@ class PersonalizationStore(
 
     async def export_data(self) -> dict[str, object]: ...
 
-    async def lastfm_profile(self, *, now: datetime) -> LastfmProfile | None: ...
+    async def lastfm_profile(self, cache_key: str, *, now: datetime) -> LastfmProfile | None: ...
 
     async def save_lastfm_profile(
-        self, profile: LastfmProfile, *, refreshed_at: datetime, expires_at: datetime
+        self,
+        cache_key: str,
+        profile: LastfmProfile,
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
     ) -> None: ...
 
     async def lastfm_candidates(
