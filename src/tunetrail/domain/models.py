@@ -34,6 +34,15 @@ class CandidateSource(StrEnum):
     LOCAL = "local"
 
 
+class CatalogItemKind(StrEnum):
+    """Spotify catalog resource types that can provide queue tracks."""
+
+    TRACK = "track"
+    ARTIST = "artist"
+    ALBUM = "album"
+    PLAYLIST = "playlist"
+
+
 class FeedbackKind(StrEnum):
     """Explicit feedback a listener can provide for a track or queue."""
 
@@ -126,6 +135,28 @@ class ResolvedTrack(BaseModel):
     score_breakdown: dict[str, float] = Field(default_factory=dict)
 
 
+class CatalogItem(BaseModel):
+    """A selectable Spotify catalog item returned by an explicit search."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    kind: CatalogItemKind
+    spotify_id: NonEmptyText
+    spotify_uri: NonEmptyText
+    title: NonEmptyText
+    subtitle: str | None = None
+    track: ResolvedTrack | None = None
+
+    @model_validator(mode="after")
+    def validate_track_result(self) -> "CatalogItem":
+        """Require playable track metadata for track results only."""
+        if self.kind is CatalogItemKind.TRACK and self.track is None:
+            raise ValueError("track catalog results must include a resolved track")
+        if self.kind is not CatalogItemKind.TRACK and self.track is not None:
+            raise ValueError("non-track catalog results cannot include a resolved track")
+        return self
+
+
 class Device(BaseModel):
     """A Spotify playback device."""
 
@@ -168,6 +199,15 @@ class QueuePreview(BaseModel):
     intent: ListeningIntent
     items: list[QueueItem] = Field(min_length=1)
     created_at: AwareDatetime
+
+
+class CurrentQueue(BaseModel):
+    """Spotify's visible current item and upcoming playable tracks."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    current: ResolvedTrack | None = None
+    upcoming: list[ResolvedTrack] = Field(default_factory=list[ResolvedTrack])
 
 
 class Feedback(BaseModel):

@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from tunetrail.domain.models import (
     Candidate,
     CandidateSource,
+    CatalogItem,
+    CatalogItemKind,
+    CurrentQueue,
     Device,
     PlaybackState,
     ResolvedTrack,
@@ -92,6 +95,92 @@ def resolved_track_from_payload(payload: Mapping[str, object]) -> ResolvedTrack:
     )
 
 
+def catalog_item_from_track(payload: Mapping[str, object]) -> CatalogItem:
+    """Map a Spotify track search result to a selectable catalog item."""
+    track = resolved_track_from_payload(payload)
+    return CatalogItem(
+        kind=CatalogItemKind.TRACK,
+        spotify_id=track.spotify_id,
+        spotify_uri=track.spotify_uri,
+        title=track.title,
+        subtitle=", ".join(track.artists),
+        track=track,
+    )
+
+
+def catalog_item_from_artist(payload: Mapping[str, object]) -> CatalogItem:
+    """Map a Spotify artist search result to a selectable catalog context."""
+    return CatalogItem(
+        kind=CatalogItemKind.ARTIST,
+        spotify_id=_required_text(payload, "id"),
+        spotify_uri=_required_text(payload, "uri"),
+        title=_required_text(payload, "name"),
+        subtitle=_optional_text(payload, "type"),
+    )
+
+
+def catalog_item_from_album(payload: Mapping[str, object]) -> CatalogItem:
+    """Map a Spotify album search result to a selectable catalog context."""
+    return CatalogItem(
+        kind=CatalogItemKind.ALBUM,
+        spotify_id=_required_text(payload, "id"),
+        spotify_uri=_required_text(payload, "uri"),
+        title=_required_text(payload, "name"),
+        subtitle=", ".join(_artist_names(payload)),
+    )
+
+
+def catalog_item_from_playlist(payload: Mapping[str, object]) -> CatalogItem:
+    """Map a Spotify playlist search result to a selectable catalog context."""
+    owner = _mapping(payload.get("owner"))
+    return CatalogItem(
+        kind=CatalogItemKind.PLAYLIST,
+        spotify_id=_required_text(payload, "id"),
+        spotify_uri=_required_text(payload, "uri"),
+        title=_required_text(payload, "name"),
+        subtitle=_optional_text(owner, "display_name"),
+    )
+
+
+def current_queue_from_payload(payload: Mapping[str, object]) -> CurrentQueue:
+    """Map Spotify's queue response, excluding non-track queue entries."""
+    current_payload = _mapping(payload.get("currently_playing"))
+    queue_payload = payload.get("queue")
+    if not isinstance(queue_payload, list):
+        raise SpotifyPayloadError("Spotify queue response was malformed")
+    return CurrentQueue(
+        current=_resolved_track_or_none(current_payload),
+        upcoming=resolved_tracks_from_values(cast(list[object], queue_payload)),
+    )
+
+
+def resolved_tracks_from_items(payload: Mapping[str, object]) -> list[ResolvedTrack]:
+    """Map an items response, unwrapping playlist entries when necessary."""
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise SpotifyPayloadError("Spotify items response was malformed")
+    tracks: list[ResolvedTrack] = []
+    for item in cast(list[object], items):
+        item_payload = _mapping(item)
+        if item_payload is None:
+            continue
+        track_payload = _mapping(item_payload.get("item")) or item_payload
+        track = _resolved_track_or_none(track_payload)
+        if track is not None:
+            tracks.append(track)
+    return tracks
+
+
+def resolved_tracks_from_values(values: list[object]) -> list[ResolvedTrack]:
+    """Map a list of Spotify track values, omitting unsupported entries."""
+    tracks: list[ResolvedTrack] = []
+    for value in values:
+        track = _resolved_track_or_none(_mapping(value))
+        if track is not None:
+            tracks.append(track)
+    return tracks
+
+
 def playback_from_payload(payload: Mapping[str, object]) -> PlaybackState:
     """Map Spotify's current-playback response to a provider-neutral state."""
     device_payload = _mapping(payload.get("device"))
@@ -117,6 +206,16 @@ def _artist_names(payload: Mapping[str, object]) -> list[str]:
     if not names:
         raise SpotifyPayloadError("Spotify track had no artists")
     return names
+
+
+def _resolved_track_or_none(payload: Mapping[str, object] | None) -> ResolvedTrack | None:
+    """Convert a track payload when it is a supported playable track."""
+    if payload is None or payload.get("type") not in {None, "track"}:
+        return None
+    try:
+        return resolved_track_from_payload(payload)
+    except SpotifyPayloadError:
+        return None
 
 
 def _mapping(value: object) -> Mapping[str, object] | None:

@@ -11,6 +11,7 @@ from tests.test_spotify_models import track_payload
 from tunetrail.auth.models import OAuthToken
 from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
+from tunetrail.domain.models import CatalogItemKind
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.errors import SpotifyNoActiveDeviceError, SpotifyRateLimitError
 
@@ -80,6 +81,45 @@ async def test_client_reads_user_devices_and_search_results(tmp_path: Path) -> N
     assert user.id == "me"
     assert devices[0].is_active
     assert tracks[0].title == "Track"
+
+
+@respx.mock
+async def test_client_searches_catalog_contexts_and_reads_current_queue(tmp_path: Path) -> None:
+    """Explicit catalog searches and visible queues have typed, non-mutating accessors."""
+    respx.get("https://api.example/v1/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "albums": {
+                    "items": [
+                        {
+                            "id": "album-1",
+                            "uri": "spotify:album:album-1",
+                            "name": "Album",
+                            "artists": [{"name": "Artist"}],
+                        }
+                    ]
+                }
+            },
+        )
+    )
+    respx.get("https://api.example/v1/albums/album-1/tracks").mock(
+        return_value=httpx.Response(200, json={"items": [track_payload()]})
+    )
+    respx.get("https://api.example/v1/me/player/queue").mock(
+        return_value=httpx.Response(
+            200, json={"currently_playing": track_payload(), "queue": [track_payload()]}
+        )
+    )
+    async with httpx.AsyncClient() as http_client:
+        client = await spotify_client(tmp_path, http_client, [])
+        albums = await client.search_catalog("album", kind=CatalogItemKind.ALBUM)
+        tracks = await client.tracks_for_catalog_item(albums[0])
+        queue = await client.current_queue()
+
+    assert albums[0].title == "Album"
+    assert [track.title for track in tracks] == ["Track"]
+    assert queue is not None and [track.title for track in queue.upcoming] == ["Track"]
 
 
 @respx.mock

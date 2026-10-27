@@ -7,7 +7,15 @@ from typing import Literal, cast
 import httpx
 
 from tunetrail.auth.service import SpotifyAuthenticator
-from tunetrail.domain.models import Candidate, Device, PlaybackState
+from tunetrail.domain.models import (
+    Candidate,
+    CatalogItem,
+    CatalogItemKind,
+    CurrentQueue,
+    Device,
+    PlaybackState,
+    ResolvedTrack,
+)
 from tunetrail.spotify.errors import (
     SpotifyApiError,
     SpotifyAuthenticationError,
@@ -19,9 +27,15 @@ from tunetrail.spotify.errors import (
 from tunetrail.spotify.models import (
     SpotifyPayloadError,
     SpotifyUser,
-    candidate_from_track,
+    catalog_item_from_album,
+    catalog_item_from_artist,
+    catalog_item_from_playlist,
+    catalog_item_from_track,
+    current_queue_from_payload,
     device_from_payload,
     playback_from_payload,
+    resolved_tracks_from_items,
+    resolved_tracks_from_values,
 )
 
 HttpMethod = Literal["GET", "POST", "PUT"]
@@ -77,19 +91,74 @@ class SpotifyClient:
 
     async def search_tracks(self, query: str, *, limit: int = 10) -> Sequence[Candidate]:
         """Search the Spotify catalog for at most ten tracks."""
+        catalog_items = await self.search_catalog(query, kind=CatalogItemKind.TRACK, limit=limit)
+        return [item.track.candidates[0] for item in catalog_items if item.track is not None]
+
+    async def search_catalog(
+        self, query: str, *, kind: CatalogItemKind, limit: int = 10
+    ) -> Sequence[CatalogItem]:
+        """Search one explicit Spotify catalog resource type for at most ten results."""
+        if not query.strip():
+            raise ValueError("Spotify catalog search query cannot be empty")
         if not 1 <= limit <= 10:
-            raise ValueError("Spotify track search limit must be between 1 and 10")
+            raise ValueError("Spotify catalog search limit must be between 1 and 10")
         payload = _response_mapping(
             await self._request(
-                "GET", "/search", params={"q": query, "type": "track", "limit": limit}
+                "GET", "/search", params={"q": query, "type": kind.value, "limit": limit}
             )
         )
-        tracks = _mapping_or_error(payload.get("tracks"))
-        items = tracks.get("items")
+        results = _mapping_or_error(payload.get(f"{kind.value}s"))
+        items = results.get("items")
         if not isinstance(items, list):
             raise SpotifyPayloadError("Spotify search response was malformed")
-        track_items = cast(list[object], items)
-        return [candidate_from_track(_mapping_or_error(item)) for item in track_items]
+        mapper = {
+            CatalogItemKind.TRACK: catalog_item_from_track,
+            CatalogItemKind.ARTIST: catalog_item_from_artist,
+            CatalogItemKind.ALBUM: catalog_item_from_album,
+            CatalogItemKind.PLAYLIST: catalog_item_from_playlist,
+        }[kind]
+        return [mapper(_mapping_or_error(item)) for item in cast(list[object], items)]
+
+    async def tracks_for_catalog_item(
+        self, item: CatalogItem, *, limit: int = 10
+    ) -> Sequence[ResolvedTrack]:
+        """Return tracks for a selected catalog result without changing playback."""
+        if not 1 <= limit <= 50:
+            raise ValueError("Spotify context track limit must be between 1 and 50")
+        if item.kind is CatalogItemKind.TRACK:
+            return [item.track] if item.track is not None else []
+        if item.kind is CatalogItemKind.ARTIST:
+            payload = _response_mapping(
+                await self._request(
+                    "GET",
+                    f"/artists/{item.spotify_id}/top-tracks",
+                    params={"market": "from_token"},
+                )
+            )
+            values = payload.get("tracks")
+            if not isinstance(values, list):
+                raise SpotifyPayloadError("Spotify artist tracks response was malformed")
+            return resolved_tracks_from_values(cast(list[object], values))[:limit]
+        if item.kind is CatalogItemKind.ALBUM:
+            payload = _response_mapping(
+                await self._request(
+                    "GET", f"/albums/{item.spotify_id}/tracks", params={"limit": limit}
+                )
+            )
+            return resolved_tracks_from_items(payload)
+        payload = _response_mapping(
+            await self._request(
+                "GET", f"/playlists/{item.spotify_id}/items", params={"limit": limit}
+            )
+        )
+        return resolved_tracks_from_items(payload)
+
+    async def current_queue(self) -> CurrentQueue | None:
+        """Return the current item and upcoming tracks visible to Spotify."""
+        response = await self._request("GET", "/me/player/queue", allow_no_content=True)
+        if response.status_code == 204:
+            return None
+        return current_queue_from_payload(_response_mapping(response))
 
     async def add_to_queue(self, spotify_uri: str, *, device_id: str | None = None) -> None:
         """Append one explicit Spotify track URI to the selected device queue."""

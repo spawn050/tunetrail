@@ -1,6 +1,11 @@
 """Tests for Spotify payload mappings."""
 
-from tunetrail.spotify.models import candidate_from_track, playback_from_payload
+from tunetrail.spotify.models import (
+    candidate_from_track,
+    catalog_item_from_album,
+    current_queue_from_payload,
+    playback_from_payload,
+)
 
 
 def track_payload() -> dict[str, object]:
@@ -47,3 +52,26 @@ def test_playback_mapping_handles_a_current_track_and_device() -> None:
 
     assert state.device is not None and state.device.name == "Desktop"
     assert state.track is not None and state.track.title == "Track"
+
+
+def test_catalog_album_and_current_queue_mapping_are_typed() -> None:
+    """Catalog contexts and queue entries retain only playable track metadata."""
+    album = catalog_item_from_album(
+        {
+            "id": "album-1",
+            "uri": "spotify:album:album-1",
+            "name": "Album",
+            "artists": [{"name": "Artist"}],
+        }
+    )
+    queue = current_queue_from_payload(
+        {
+            "currently_playing": track_payload(),
+            "queue": [track_payload(), {"type": "episode", "name": "Podcast"}],
+        }
+    )
+
+    assert album.title == "Album"
+    assert album.subtitle == "Artist"
+    assert queue.current is not None and queue.current.title == "Track"
+    assert [track.title for track in queue.upcoming] == ["Track"]
