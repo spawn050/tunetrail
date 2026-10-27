@@ -116,4 +116,6 @@ async def test_resolver_matches_non_ascii_names_without_collapsing_them() -> Non
     )
     resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify([result])))
     assert await resolver.resolve(lastfm_candidate(title="別の曲", artists=["東京"])) is None
-    assert await resolver.resolve(lastfm_candidate(title="夜に駆ける", artists=["東京"])) is not None
+    assert (
+        await resolver.resolve(lastfm_candidate(title="夜に駆ける", artists=["東京"])) is not None
+    )
