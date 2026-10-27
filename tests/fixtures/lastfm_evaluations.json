@@ -1,0 +1,17 @@
+[
+  {
+    "title": "Quiet Three", "artist": "New Artist", "duration_ms": 180000,
+    "spotify_title": "Quiet Three", "spotify_artist": "New Artist", "spotify_duration_ms": 180000,
+    "spotify_id": "lastfm3", "expected_match": true
+  },
+  {
+    "title": "Quiet Four", "artist": "Another Artist", "duration_ms": 180000,
+    "spotify_title": "Quiet Four", "spotify_artist": "Another Artist", "spotify_duration_ms": 180000,
+    "spotify_id": "lastfm4", "expected_match": true
+  },
+  {
+    "title": "Quiet Five", "artist": "Fifth Artist", "duration_ms": 180000,
+    "spotify_title": "Quiet Five Live", "spotify_artist": "Fifth Artist", "spotify_duration_ms": 180000,
+    "spotify_id": "wrong", "expected_match": false
+  }
+]
