@@ -1,8 +1,11 @@
 """Read-only MusicBrainz client with application-wide request pacing."""
 
 import asyncio
+import fcntl
+import os
 import time
 from collections.abc import Mapping
+from pathlib import Path
 from typing import cast
 from urllib.parse import quote
 
@@ -10,6 +13,7 @@ import httpx
 from pydantic import ValidationError
 
 from tunetrail.musicbrainz.models import Artist, Recording, Release
+from tunetrail.paths import AppPaths
 
 _USER_AGENT = "TuneTrail/0.1.0 ( https://github.com/spawn050/tunetrail )"
 
@@ -19,22 +23,40 @@ class MusicBrainzError(Exception):
 
 
 class RateLimiter:
-    """Serialize calls and space their starts by at least one second per process/event loop."""
+    """Coordinate requests by all local instances sharing the same TuneTrail cache directory."""
 
-    def __init__(self) -> None:
-        self._lock = asyncio.Lock()
-        self._last_start = 0.0
+    def __init__(self, lock_path: Path | None = None) -> None:
+        self._lock_path = lock_path or AppPaths.default().cache_dir / "musicbrainz-rate.lock"
 
     async def get(
         self, client: httpx.AsyncClient, url: str, params: Mapping[str, str]
     ) -> httpx.Response:
         """Pace every request, including retries, across all shared client instances."""
-        async with self._lock:
-            delay = 1.0 - (time.monotonic() - self._last_start)
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(self._lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(0.05)
+            raw = os.read(fd, 64)
+            try:
+                last_start = float(raw)
+            except ValueError:
+                last_start = 0.0
+            now = time.monotonic()
+            # A reboot resets the monotonic clock; conservatively wait a second.
+            delay = 1.0 if last_start > now else 1.0 - (now - last_start)
             if delay > 0:
                 await asyncio.sleep(delay)
-            self._last_start = time.monotonic()
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.ftruncate(fd, 0)
+            os.write(fd, str(time.monotonic()).encode("ascii"))
             return await client.get(url, params=params, headers={"User-Agent": _USER_AGENT})
+        finally:
+            os.close(fd)
 
 
 _LIMITER = RateLimiter()

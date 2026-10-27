@@ -649,10 +649,11 @@ Phase 5 gate. The Phase 5 diversity and accuracy evidence remains outstanding an
 must be revisited; this override does not mark that gate as satisfied.
 
 Initial work adds a read-only MusicBrainz client and normalized artist, recording,
-and release models. A shared in-process/event-loop limiter spaces requests and
-retries by at least one second; the User-Agent identifies the project repository.
-The client is not yet connected to queue generation. Cross-process coordination,
-caching, integration, and Phase 6 acceptance remain outstanding.
+and release models. The User-Agent identifies the project repository. A shared
+lock in the TuneTrail cache directory coordinates requests and retries across local
+processes using that directory, spacing starts by at least one second. It cannot
+coordinate unrelated clients or TuneTrail instances with different cache directories.
+Integration and Phase 6 acceptance remain outstanding.
 
 An isolated matcher now prefers matching ISRCs and otherwise requires normalized
 artist/title agreement and compatible duration, accepting known artist aliases.
