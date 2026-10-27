@@ -617,6 +617,31 @@ reauthorized Spotify session, and an active Premium device; it has not been run.
 Local verification passes `uv run ruff format --check .`, `uv run ruff check .`,
 `uv run pyright`, and `uv run pytest` (108 tests).
 
+Additional Phase 5 evaluation uses ten hand-authored synthetic resolution cases:
+five accepted matches were labelled correct, no accepted matches were labelled
+incorrect, and no labelled available matches were missed. These labels were not
+independently verified against real recordings; 5/5 precision is a regression
+result, not an estimate of catalog accuracy. The resolver now rejects equally
+supported distinct Spotify URIs rather than arbitrarily selecting one; duplicate
+listings of the same URI remain acceptable.
+
+Three synthetic graph comparisons exercise peaceful/study, discovery, and
+familiar requests with different profile preferences. Each preview increased
+from one to two distinct tracks and artists after enrichment. The comparisons
+also check merging a duplicate URI, rejecting a mismatched edition, excluding
+explicit or incomplete Spotify results, and cancellation without player or
+session mutations. They use a fixture enrichment provider and mocked Spotify
+search results, not a live Last.fm profile. They do not establish a representative
+gain or compare independently labelled Spotify-only and enriched accuracy. The
+Phase 5 gate therefore remains open; independently reviewed real-world cases and
+comparative evidence are still needed. No live acceptance was performed.
+
+Latest local verification: formatting, lint, and Pyright pass; `uv run pytest -q`
+passed 113 tests on a sequential rerun. An earlier run concurrent with the other
+checks failed once in an existing Textual TUI test when its playback-progress
+timer queried a removed widget during teardown; the rerun passed. This intermittent
+failure remains uninvestigated and is not evidence of a Phase 5 regression.
+
 ### Phase 6
 
 _No implementation notes yet._
