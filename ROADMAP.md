@@ -659,6 +659,10 @@ artist/title agreement and compatible duration, accepting known artist aliases.
 It rejects conflicting ISRCs and equally supported distinct recording IDs. It is
 not yet wired to lookups or queue generation; no accuracy improvement is claimed.
 
+The ISRC-first lookup flow now calls the matcher, falls back to name search only
+after an empty ISRC result, and preserves source failures instead of treating them
+as negative matches. This flow is still not wired to queue generation or caching.
+
 ### Phase 7
 
 _No implementation notes yet._

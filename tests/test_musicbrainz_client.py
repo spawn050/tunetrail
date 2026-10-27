@@ -82,3 +82,10 @@ async def test_failure_and_unsafe_isrc() -> None:
             await client.by_isrc("../../bad")
         with pytest.raises(MusicBrainzError, match="unavailable"):
             await client.search(artist="A", title="B")
+
+
+async def test_missing_isrc_is_empty() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(404))
+    ) as http:
+        assert await MusicBrainzClient(http, limiter=RateLimiter()).by_isrc("USABC1234567") == []

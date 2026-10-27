@@ -58,8 +58,16 @@ class MusicBrainzClient:
         """Look up all recordings associated with an ISRC; clashes can occur."""
         if len(isrc) != 12 or not isrc.isascii() or not isrc.isalnum():
             raise ValueError("ISRC must contain 12 ASCII letters or digits")
-        payload = await self._get(f"isrc/{isrc.upper()}", {"inc": "artist-credits+releases+isrcs"})
-        return _recordings(payload)
+        payload = await self._get(
+            f"isrc/{isrc.upper()}", {"inc": "artist-credits+releases+isrcs"}, allow_not_found=True
+        )
+        # The endpoint itself proves the ISRC association even if the response omits isrcs.
+        return [
+            recording.model_copy(
+                update={"isrcs": list(dict.fromkeys([*recording.isrcs, isrc.upper()]))}
+            )
+            for recording in _recordings(payload)
+        ]
 
     async def search(self, *, artist: str, title: str) -> list[Recording]:
         """Search a bounded page; results must be independently matched before use."""
@@ -71,7 +79,9 @@ class MusicBrainzClient:
         payload = await self._get(f"artist/{quote(mbid, safe='')}", {"inc": "aliases"})
         return _artist(payload)
 
-    async def _get(self, path: str, params: dict[str, str]) -> Mapping[str, object]:
+    async def _get(
+        self, path: str, params: dict[str, str], *, allow_not_found: bool = False
+    ) -> Mapping[str, object]:
         """Retry one temporary 503, without logging private request details."""
         for attempt in range(2):
             try:
@@ -82,6 +92,8 @@ class MusicBrainzClient:
                 raise MusicBrainzError("MusicBrainz is unavailable.") from error
             if response.status_code == 503 and attempt == 0:
                 continue
+            if response.status_code == 404 and allow_not_found:
+                return {"recordings": []}
             if response.is_error:
                 raise MusicBrainzError("MusicBrainz is unavailable.")
             try:
