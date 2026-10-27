@@ -2,7 +2,11 @@
 
 import pytest
 
-from tunetrail.llm.intent_parser import IntentParseError, StructuredIntentParser
+from tunetrail.llm.intent_parser import (
+    IntentParseError,
+    StructuredIntentParser,
+    StructuredPreferenceParser,
+)
 
 
 class FakeStructuredModel:
@@ -65,3 +69,32 @@ async def test_parser_recovers_from_a_bounded_provider_timeout() -> None:
 
     assert intent.artists == ["Radiohead"]
     assert len(model.calls) == 2
+
+
+async def test_preference_parser_separates_request_and_lasting_preference() -> None:
+    model = FakeStructuredModel(
+        [
+            {
+                "intent": {"moods": ["calm"]},
+                "preferences": [{"subject": "artist", "name": "Artist", "polarity": "like"}],
+            }
+        ]
+    )
+    parsed = await StructuredPreferenceParser(model).parse("I love Artist; play something calm")
+    assert parsed.intent is not None and parsed.intent.moods == ["calm"]
+    assert parsed.preferences[0].name == "Artist"
+
+
+async def test_preference_parser_retries_ambiguous_or_invalid_updates() -> None:
+    model = FakeStructuredModel(
+        [
+            {
+                "clarification": "Always?",
+                "preferences": [{"subject": "genre", "name": "jazz", "polarity": "like"}],
+            },
+            {"clarification": "Do you generally like jazz?"},
+        ]
+    )
+    parsed = await StructuredPreferenceParser(model, max_retries=1).parse("Jazz is nice")
+    assert parsed.clarification == "Do you generally like jazz?"
+    assert not parsed.preferences

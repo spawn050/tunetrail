@@ -162,6 +162,54 @@ class ListeningIntent(BaseModel):
         return self
 
 
+class ChatPreference(BaseModel):
+    """A lasting preference extracted from chat, without model-supplied provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    subject: PreferenceSubject
+    name: str = Field(min_length=1, max_length=200)
+    artist: str | None = Field(default=None, min_length=1, max_length=200)
+    polarity: PreferencePolarity
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "ChatPreference":
+        """Reject unsupported identity shapes and Spotify references."""
+        if any(
+            "spotify:" in value.casefold() or "open.spotify.com/" in value.casefold()
+            for value in (self.name, self.artist or "")
+        ):
+            raise ValueError("Spotify references are not independent preference identities")
+        if self.subject is PreferenceSubject.RECORDING and not self.artist:
+            raise ValueError("recording preferences require an artist")
+        if self.subject is not PreferenceSubject.RECORDING and self.artist is not None:
+            raise ValueError("artist context is only supported for recordings")
+        return self
+
+
+class ChatInterpretation(BaseModel):
+    """Validated temporary intent and explicit lasting preferences from one message."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    intent: ListeningIntent | None = None
+    preferences: list[ChatPreference] = Field(default_factory=list[ChatPreference], max_length=20)
+    clarification: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_interpretation(self) -> "ChatInterpretation":
+        """Do not save guessed preferences when the interpretation is ambiguous."""
+        if (
+            self.clarification is not None or (self.intent and self.intent.clarification_needed)
+        ) and self.preferences:
+            raise ValueError("ambiguous messages cannot update lasting preferences")
+        if self.intent is None and not self.preferences and self.clarification is None:
+            raise ValueError(
+                "an interpretation must contain an intent, preference or clarification"
+            )
+        return self
+
+
 class Candidate(BaseModel):
     """A possible track before Spotify playback resolution."""
 
