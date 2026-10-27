@@ -95,9 +95,24 @@ class MusicBrainzClient:
         ]
 
     async def search(self, *, artist: str, title: str) -> list[Recording]:
-        """Search a bounded page; results must be independently matched before use."""
+        """Reject incomplete search results before attempting a uniqueness match."""
         query = f'recording:"{_escape(title)}" AND artist:"{_escape(artist)}"'
-        return _recordings(await self._get("recording", {"query": query, "limit": "10"}))
+        payload = await self._get("recording", {"query": query, "limit": "10"})
+        items = payload.get("recordings")
+        count = payload.get("count")
+        offset = payload.get("offset", 0)
+        if not isinstance(items, list):
+            raise MusicBrainzError("MusicBrainz returned incomplete search results.")
+        item_count = len(cast(list[object], items))
+        if (
+            type(count) is not int
+            or count != item_count
+            or item_count > 10
+            or type(offset) is not int
+            or offset != 0
+        ):
+            raise MusicBrainzError("MusicBrainz returned incomplete search results.")
+        return _recordings(payload)
 
     async def artist(self, mbid: str) -> Artist:
         """Fetch a canonical artist and aliases."""

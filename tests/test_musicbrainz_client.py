@@ -62,7 +62,8 @@ async def test_missing_release_count_is_not_assumed_complete(tmp_path: Path) -> 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(
-                200, json={"recordings": [{"id": "one", "title": "Song", "releases": []}]}
+                200,
+                json={"count": 1, "recordings": [{"id": "one", "title": "Song", "releases": []}]},
             )
         )
     ) as http:
@@ -78,7 +79,7 @@ async def test_shared_limiter_serializes_concurrent_clients(tmp_path: Path) -> N
 
     async def handler(request: httpx.Request) -> httpx.Response:
         starts.append(time.monotonic())
-        return httpx.Response(200, json={"recordings": []})
+        return httpx.Response(200, json={"count": 0, "recordings": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         first = MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock"))
@@ -87,6 +88,27 @@ async def test_shared_limiter_serializes_concurrent_clients(tmp_path: Path) -> N
             first.search(artist="A", title="B"), second.search(artist="C", title="D")
         )
     assert starts[1] - starts[0] >= 0.99
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"count": 2, "recordings": [{"id": "one", "title": "Song"}]},
+        {"recordings": [{"id": "one", "title": "Song"}]},
+        {"count": True, "recordings": [{"id": "one", "title": "Song"}]},
+        {"count": 1, "offset": 1, "recordings": [{"id": "one", "title": "Song"}]},
+        {"count": 0},
+    ],
+)
+async def test_incomplete_search_is_not_a_matchable_page(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    ) as http:
+        client = MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock"))
+        with pytest.raises(MusicBrainzError, match="incomplete search"):
+            await client.search(artist="Artist", title="Song")
 
 
 async def test_rate_limit_is_shared_across_processes(tmp_path: Path) -> None:
