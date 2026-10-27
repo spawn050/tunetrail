@@ -49,5 +49,5 @@ def _key(candidate: Candidate) -> str:
         [candidate.isrc or "", candidate.title, *candidate.artists, str(candidate.duration_ms)]
     )
     # Version the key whenever matching safety rules change; older cached matches
-    # may have been accepted using incomplete search results.
-    return "musicbrainz:v2:" + sha256(evidence.casefold().encode()).hexdigest()
+    # may have been accepted using incomplete search or release evidence.
+    return "musicbrainz:v3:" + sha256(evidence.casefold().encode()).hexdigest()
