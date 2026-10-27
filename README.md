@@ -77,8 +77,10 @@ become available on a later request. Errors leave Spotify results unchanged.
 
 Only uniquely supported normalized matches are cached, for 30 days and at most
 1,000 entries; profile reset clears them. A missing Spotify year may be filled
-only when the matched recording has an unambiguous, matching release title;
-remaster/live/deluxe album titles and conflicting release years are excluded.
+only when MusicBrainz supplies an explicitly complete release list with exactly
+one matching release title and a valid date. Remaster/live/deluxe album titles
+and ambiguous editions are excluded. When completeness cannot be established,
+TuneTrail leaves the year unknown.
 Spotify playback identity remains unchanged and confirmation is still required.
 Requests from TuneTrail processes sharing its cache directory are paced together;
 other applications and separate cache directories are not coordinated.

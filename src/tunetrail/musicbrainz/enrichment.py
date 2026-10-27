@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
+from datetime import date
 from typing import Protocol
 
 from tunetrail.domain.models import Candidate
@@ -61,33 +62,36 @@ def _apply(candidate: Candidate, match: RecordingMatch) -> Candidate:
     album = _normal(candidate.album or "")
     if (
         year is None
+        and recording.releases_complete
         and album
         and not any(marker in album for marker in ("remaster", "deluxe", "live", "anniversary"))
     ):
         releases = [release for release in recording.releases if _normal(release.title) == album]
-        years = {
-            int(release.date[:4])
-            for release in releases
-            if release.date
-            and len(release.date) >= 4
-            and release.date[:4].isdigit()
-            and 1860 <= int(release.date[:4]) <= 2100
-        }
-        if (
-            releases
-            and len(years) == 1
-            and all(
-                release.date
-                and len(release.date) >= 4
-                and release.date[:4].isdigit()
-                and 1860 <= int(release.date[:4]) <= 2100
-                for release in releases
-            )
-        ):
-            year = next(iter(years))
+        # Distinct releases with the same title can be separate editions even if
+        # their dates agree; don't infer which one Spotify meant.
+        if len(releases) == 1 and (release_year := _release_year(releases[0].date)) is not None:
+            year = release_year
             provenance["musicbrainz_year_source"] = "matching release"
     return candidate.model_copy(update={"year": year, "provenance": provenance})
 
 
 def _normal(value: str) -> str:
     return " ".join("".join(char if char.isalnum() else " " for char in value.casefold()).split())
+
+
+def _release_year(value: str | None) -> int | None:
+    """Validate MusicBrainz's partial ISO dates without inventing missing components."""
+    if value is None:
+        return None
+    try:
+        if len(value) == 4 and value.isascii() and value.isdigit():
+            year = int(value)
+        elif len(value) == 7:
+            year = date.fromisoformat(value + "-01").year
+        elif len(value) == 10:
+            year = date.fromisoformat(value).year
+        else:
+            return None
+    except ValueError:
+        return None
+    return year if 1860 <= year <= 2100 else None

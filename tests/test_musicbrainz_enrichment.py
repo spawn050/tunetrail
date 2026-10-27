@@ -32,7 +32,9 @@ class Lookup:
 
 def match(*releases: Release) -> RecordingMatch:
     return RecordingMatch(
-        recording=Recording(id="recording", title="Love Story", releases=list(releases)),
+        recording=Recording(
+            id="recording", title="Love Story", releases=list(releases), releases_complete=True
+        ),
         confidence=0.95,
         method="artist_title_duration",
     )
@@ -67,6 +69,35 @@ async def test_ambiguous_release_does_not_invent_year() -> None:
     )
     assert candidates[0].year is None
     assert "musicbrainz_year_source" not in candidates[0].provenance
+
+
+async def test_incomplete_and_same_year_editions_are_not_guessed() -> None:
+    release = Release(id="one", title="Fearless", date="2008-01-01")
+    original = match(release)
+    incomplete = RecordingMatch(
+        recording=original.recording.model_copy(update={"releases_complete": False}),
+        confidence=original.confidence,
+        method=original.method,
+    )
+    candidate = playable_candidate(album="Fearless", year=None)
+    result = await MusicBrainzEnrichment(Lookup(incomplete)).enrich([candidate])
+    assert result[0].year is None
+    editions = match(release, Release(id="two", title="Fearless", date="2008-02-01"))
+    result = await MusicBrainzEnrichment(Lookup(editions)).enrich([candidate])
+    assert result[0].year is None
+
+
+async def test_invalid_date_and_remaster_are_not_used() -> None:
+    invalid = match(Release(id="one", title="Fearless", date="2008-99-99"))
+    result = await MusicBrainzEnrichment(Lookup(invalid)).enrich(
+        [playable_candidate(album="Fearless", year=None)]
+    )
+    assert result[0].year is None
+    remaster = match(Release(id="one", title="Fearless Remastered", date="2020"))
+    result = await MusicBrainzEnrichment(Lookup(remaster)).enrich(
+        [playable_candidate(album="Fearless Remastered", year=None)]
+    )
+    assert result[0].year is None
 
 
 async def test_cache_miss_returns_without_network_wait() -> None:

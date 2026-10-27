@@ -188,6 +188,13 @@ def _recordings(payload: Mapping[str, object]) -> list[Recording]:
                         "duration_ms": value.get("length"),
                         "isrcs": _list(value.get("isrcs")),
                         "releases": releases,
+                        # The API may omit linked releases or return only the first page.
+                        # Absence of an explicit total is not proof of completeness.
+                        "releases_complete": (
+                            isinstance(value.get("release-count"), int)
+                            and value.get("release-count") == len(releases)
+                            and len(_list(value.get("releases"))) == len(releases)
+                        ),
                         "tags": [
                             tag["name"]
                             for item in _list(value.get("tags"))[:25]

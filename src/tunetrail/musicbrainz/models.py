@@ -32,4 +32,5 @@ class Recording(BaseModel):
     duration_ms: int | None = None
     isrcs: list[str] = Field(default_factory=list[str])
     releases: list[Release] = Field(default_factory=list[Release])
+    releases_complete: bool = False
     tags: list[str] = Field(default_factory=list[str])

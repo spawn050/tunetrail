@@ -27,6 +27,7 @@ async def test_isrc_mapping_and_retry(tmp_path: Path) -> None:
                         "id": "recording-id",
                         "title": "Song",
                         "length": 180000,
+                        "release-count": 1,
                         "artist-credit": [{"artist": {"id": "artist-id", "name": "Artist"}}],
                         "isrcs": ["USABC1234567"],
                         "releases": [
@@ -54,6 +55,21 @@ async def test_isrc_mapping_and_retry(tmp_path: Path) -> None:
     assert calls[0].url.path.endswith("/isrc/USABC1234567")
     assert result[0].artists[0].name == "Artist"
     assert result[0].releases[0].date == "2001-02-03"
+    assert result[0].releases_complete
+
+
+async def test_missing_release_count_is_not_assumed_complete(tmp_path: Path) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, json={"recordings": [{"id": "one", "title": "Song", "releases": []}]}
+            )
+        )
+    ) as http:
+        result = await MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock")).search(
+            artist="Artist", title="Song"
+        )
+    assert not result[0].releases_complete
 
 
 async def test_shared_limiter_serializes_concurrent_clients(tmp_path: Path) -> None:
