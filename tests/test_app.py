@@ -206,6 +206,15 @@ def resolved_intent() -> ListeningIntent:
     return intent(action=PlaybackAction.PLAY_NOW, artists=["Artist"])
 
 
+async def test_progress_timer_is_safe_after_unmount() -> None:
+    """A queued timer tick must not query a widget already removed during teardown."""
+    spotify = FakeSpotify()
+    app = SpotifyControlApp(spotify=cast(SpotifyClient, spotify))
+    async with app.run_test(size=(100, 50)):
+        pass
+    app._refresh_playback_progress()  # pyright: ignore[reportPrivateUsage]
+
+
 async def test_unconfigured_shell_explains_the_missing_client_id() -> None:
     """The initial TUI tells a new user how to enable Spotify sign-in."""
     app = SpotifyControlApp(

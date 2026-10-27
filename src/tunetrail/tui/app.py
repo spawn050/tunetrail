@@ -11,6 +11,7 @@ import httpx
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import Button, Footer, Header, Input, Select, Static
 
 from tunetrail.auth.service import (
@@ -882,9 +883,14 @@ class SpotifyControlApp(App[None]):
 
     def _refresh_playback_progress(self) -> None:
         """Advance only the rendered progress between Spotify state refreshes."""
+        try:
+            widget = self.query_one("#now-playing", Static)
+        except NoMatches:
+            # A timer callback may already be queued while the app is unmounting.
+            return
         playback = self._playback
         if playback is None or playback.track is None:
-            self.query_one("#now-playing", Static).update("Now playing: nothing")
+            widget.update("Now playing: nothing")
             return
         artists = ", ".join(playback.track.artists)
         status = "playing" if playback.is_playing else "paused"
@@ -894,7 +900,7 @@ class SpotifyControlApp(App[None]):
             progress = min(
                 progress + int(elapsed.total_seconds() * 1_000), playback.track.duration_ms
             )
-        self.query_one("#now-playing", Static).update(
+        widget.update(
             f"Now playing: {playback.track.title} — {artists} ({status}, "
             f"{_format_duration(progress)} / {_format_duration(playback.track.duration_ms)})"
         )

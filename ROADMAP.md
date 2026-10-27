@@ -642,6 +642,10 @@ checks failed once in an existing Textual TUI test when its playback-progress
 timer queried a removed widget during teardown; the rerun passed. This intermittent
 failure remains uninvestigated and is not evidence of a Phase 5 regression.
 
+The previously observed teardown race was subsequently addressed: queued playback
+progress timer callbacks now tolerate the now-playing widget having been removed.
+A regression test invokes the callback after the Textual application unmounts.
+
 ### Phase 6
 
 Phase 6 was started with the project owner's explicit override of the still-open
