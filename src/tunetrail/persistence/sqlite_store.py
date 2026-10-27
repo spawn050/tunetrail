@@ -11,6 +11,7 @@ from typing import TypeVar, cast
 from tunetrail.domain.models import (
     ActionHistoryEntry,
     Candidate,
+    ExplicitPreference,
     Feedback,
     LastfmProfile,
     PlaylistSignal,
@@ -86,6 +87,12 @@ _MIGRATIONS: tuple[str, ...] = (
         expires_at TEXT NOT NULL
     );
     """,
+    """
+    CREATE TABLE explicit_preference (
+        identity_key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL
+    );
+    """,
 )
 
 
@@ -97,6 +104,50 @@ class SQLitePersonalizationStore:
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._path.parent.chmod(0o700)
         self._migrate()
+
+    async def set_preference(self, preference: ExplicitPreference) -> None:
+        """Replace one explicit preference; never consult legacy Spotify records."""
+        identity = json.dumps(
+            [
+                preference.subject.value,
+                preference.name.casefold(),
+                (preference.artist or "").casefold(),
+                (preference.musicbrainz_id or "").lower(),
+            ],
+            separators=(",", ":"),
+        )
+
+        def save(connection: sqlite3.Connection) -> None:
+            exists = connection.execute(
+                "SELECT 1 FROM explicit_preference WHERE identity_key = ?", (identity,)
+            ).fetchone()
+            count = connection.execute("SELECT COUNT(*) FROM explicit_preference").fetchone()[0]
+            if exists is None and count >= 1000:
+                raise ValueError(
+                    "Explicit preference limit reached; reset or update existing entries."
+                )
+            connection.execute(
+                "INSERT INTO explicit_preference VALUES (?, ?) "
+                "ON CONFLICT(identity_key) DO UPDATE SET value_json = excluded.value_json",
+                (identity, preference.model_dump_json()),
+            )
+
+        await self._run(save)
+
+    async def explicit_preferences(self) -> list[ExplicitPreference]:
+        """Return only the independent explicit profile."""
+
+        def load(connection: sqlite3.Connection) -> list[ExplicitPreference]:
+            rows = connection.execute(
+                "SELECT value_json FROM explicit_preference ORDER BY identity_key"
+            ).fetchall()
+            return [ExplicitPreference.model_validate_json(row[0]) for row in rows]
+
+        return await self._run(load)
+
+    async def reset_explicit_preferences(self) -> None:
+        """Reset the new profile without touching legacy records or credentials."""
+        await self._run(lambda connection: connection.execute("DELETE FROM explicit_preference"))
 
     async def get(self) -> ProfileSummary | None:
         """Return the single compact local profile, if it has been ingested."""

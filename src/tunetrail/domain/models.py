@@ -64,6 +64,67 @@ class ActionOutcome(StrEnum):
 NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
+class PreferenceSubject(StrEnum):
+    """Kinds of independently supplied taste preferences."""
+
+    ARTIST = "artist"
+    RECORDING = "recording"
+    GENRE = "genre"
+    FEATURE = "feature"
+
+
+class PreferenceSource(StrEnum):
+    """How a lasting preference was explicitly expressed."""
+
+    DIRECT = "direct"
+    CHAT = "chat"
+    TILE = "tile"
+    SURVEY = "survey"
+
+
+class PreferencePolarity(StrEnum):
+    """Explicit positive or negative preference, not inferred listening."""
+
+    LIKE = "like"
+    DISLIKE = "dislike"
+
+
+class ExplicitPreference(BaseModel):
+    """A bounded lasting preference with independently supplied identity and provenance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    subject: PreferenceSubject
+    name: str = Field(min_length=1, max_length=200)
+    artist: str | None = Field(default=None, min_length=1, max_length=200)
+    musicbrainz_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    )
+    polarity: PreferencePolarity
+    source: PreferenceSource
+    updated_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "ExplicitPreference":
+        """Avoid Spotify references and require context for recording names."""
+        if any(
+            "spotify:" in value.casefold() or "open.spotify.com/" in value.casefold()
+            for value in (self.name, self.artist or "")
+        ):
+            raise ValueError("Spotify references are not independent preference identities")
+        if self.subject is PreferenceSubject.RECORDING and not (self.artist or self.musicbrainz_id):
+            raise ValueError("recordings require an artist or MusicBrainz ID")
+        if self.subject is not PreferenceSubject.RECORDING and self.artist is not None:
+            raise ValueError("artist context is only supported for recordings")
+        if self.musicbrainz_id and self.subject not in (
+            PreferenceSubject.ARTIST,
+            PreferenceSubject.RECORDING,
+        ):
+            raise ValueError("MusicBrainz IDs are only supported for artists and recordings")
+        return self
+
+
 class ListeningIntent(BaseModel):
     """A validated interpretation of a listener's request."""
 
