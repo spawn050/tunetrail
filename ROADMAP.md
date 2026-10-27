@@ -682,6 +682,16 @@ release/edition handling and representative comparisons remain incomplete. Phase
 bounded result page before deciding uniqueness; pages requiring more than five
 artist lookups are rejected instead of making a decision on partial evidence.
 
+A five-case hand-authored synthetic era comparison measured safe-eligibility
+agreement of 4/5 for Spotify-only and 5/5 with cached enrichment, with accepted
+items increasing from 1 to 2 and no false admissions in this fixture. Ambiguous
+editions were labelled unsafe rather than assigned an unknown real-world truth.
+Labels and mocked metadata are not independently verified, and the fixture does
+not establish live accuracy, release-list availability, or representative impact.
+In particular, responses lacking an explicit release count cannot improve a year
+under the current conservative rule. Phase 6's gate remains open pending broader
+independent and preferably live comparisons. No live acceptance was performed.
+
 ### Phase 7
 
 _No implementation notes yet._
