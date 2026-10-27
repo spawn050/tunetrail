@@ -383,6 +383,33 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Phase gate:** vague requests produce a personalized, diverse, explainable queue using Spotify-only signals and pass the fixed personalization evaluation suite.
 
+### Phase 4R — Independent personalization redesign
+
+**Goal:** redesign the taste profile around direct user preferences and optional Last.fm history, while keeping Spotify as the catalog and playback authority.
+
+This is a proposed redesign of existing Phase 4–6 behavior, not a claim that those
+flows already satisfy the new boundary. Offline mapping, design, and mocked
+implementation may proceed while the Phase 5 and 6 evidence gates remain open;
+this does not close or override those gates. Live testing remains a separate owner
+decision and authorization, and playback or queue mutations require explicit
+approval.
+
+- [ ] Map existing Spotify profile inputs, external-source requests, persistence, feedback, and deletion paths; document where Spotify-derived data crosses the proposed boundary.
+- [ ] Define profile inputs, provenance, retention, reset/deletion, and migration behavior for direct preferences, explicit feedback, and optional Last.fm history.
+- [ ] Decide with the owner how to handle any existing Spotify-derived local profile data; do not delete it without approval.
+- [ ] Replace Spotify likes, top/recent listening, and playback observation as taste-profile inputs with the approved independent profile design.
+- [ ] Keep Last.fm opt-in and user-configured; use scrobbles as listening evidence rather than proof of preference, with explicit feedback weighted more strongly.
+- [ ] Prevent Spotify-derived identifiers and metadata from entering the taste profile or outbound external-source discovery requests; never send Spotify IDs to ReccoBeats, including for translation.
+- [ ] Preserve conservative resolution to playable Spotify tracks, reviewable explanations, and the mandatory approval boundary for playback and queue mutations.
+- [ ] Add bounded storage, provenance, reset/deletion controls, and documented Last.fm attribution and other applicable API requirements.
+- [ ] Test the redesigned flows offline with synthetic or mocked data, including source failures, ambiguous matches, data boundaries, cancellation, and approval.
+- [ ] Review current provider terms and unresolved policy questions; document findings without claiming clearance, and obtain separate authorization before any live read-only testing or playback acceptance.
+
+**Phase gate:** the redesigned profile and source boundaries are implemented and
+verified offline, with existing local-data handling decided and unresolved policy
+questions documented. This gate does not establish policy clearance, authorize live
+tests, or satisfy the Phase 5 and 6 evidence gates.
+
 ### Phase 5 — Last.fm enrichment
 
 
@@ -460,6 +487,51 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 ## Phase Notes and Decisions
 
 Use this section for short, durable notes that help later agents understand completed work or intentional deviations.
+
+### Proposed personalization redesign
+
+The project owner wants listening outside TuneTrail to inform personalization, but
+would prefer not to build taste profiles directly from Spotify likes, top tracks,
+recent plays, or playback observation. The proposed direction is a locally stored
+taste profile built from explicit user preferences and feedback, with optional
+Last.fm scrobbles as the leading candidate for passive listening history. A user's
+separate Spotify-to-Last.fm connection can capture listening outside TuneTrail;
+TuneTrail would read that history from Last.fm rather than scrobbling Spotify
+activity itself. Scrobbles indicate listening, not necessarily preference, so
+explicit feedback should carry greater weight. TuneTrail-only recommendations and
+approvals must not be represented as proof that a track was heard.
+
+Spotify remains the catalog and playback authority: resolve independently sourced
+candidates to playable Spotify tracks, show a reviewable preview, and require
+explicit approval before playback or queue mutations. The intended boundary keeps
+Spotify-derived identifiers and metadata out of the taste profile and outbound
+external-source discovery requests. In particular, never send Spotify IDs to
+ReccoBeats, including during any future ID translation; translating an ID does not
+by itself make the underlying listening signal independent. ReccoBeats remains a
+provisional no-go, and its Spotify-derived metadata also requires review.
+
+This is a proposed redesign, not a description of current behavior or a policy
+clearance. Existing personalization uses Spotify top/recent signals and may use
+Spotify-derived artist names for Last.fm discovery or candidate metadata for
+MusicBrainz. Before changing these flows, review the profile, retrieval, matching,
+caching, feedback, TUI, and deletion paths; decide with the owner how to handle any
+existing Spotify-derived local data. Preserve provenance, bounded local storage,
+reset/deletion controls, and conservative matching. Do not delete existing data
+without approval.
+
+The owner prefers a proportionate approach for a private, non-commercial portfolio
+project: use documented APIs and rate limits, keep Last.fm optional and
+user-configured, and continue development with synthetic or mocked data without
+blocking all work on legal review. Published Last.fm API terms include conditions
+on non-commercial use, attribution, caching, data limits, privacy, and deletion;
+the relationship between its public-read endpoint documentation and the terms'
+authentication language needs clarification. Spotify's treatment of Last.fm
+scrobbles originating from Spotify and used to personalize Spotify playback is
+also unresolved. Personal use or user consent does not establish permission.
+Review current terms and seek clarification as appropriate; real-account testing
+requires a separate owner decision and authorization, with playback approval
+separate from read-only testing. See `docs/source-policy-review.md` for the earlier
+preliminary review. Phase 5 and 6 evidence gates remain open.
 
 ### Phase 0
 
