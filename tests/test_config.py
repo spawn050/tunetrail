@@ -32,6 +32,14 @@ def test_settings_loads_dotenv_then_environment(tmp_path: Path) -> None:
     assert settings.openrouter_api_key == "from-dotenv-key"
 
 
+def test_default_spotify_scopes_include_personalization_reads() -> None:
+    """Fresh authorization requests the Spotify reads required by Phase 4 only."""
+    settings = Settings()
+
+    assert "user-top-read" in settings.spotify_scopes
+    assert "user-read-recently-played" in settings.spotify_scopes
+
+
 def test_settings_automatically_loads_project_dotenv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

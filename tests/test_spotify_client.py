@@ -84,6 +84,46 @@ async def test_client_reads_user_devices_and_search_results(tmp_path: Path) -> N
 
 
 @respx.mock
+async def test_client_reads_spotify_taste_signals_without_catalog_copy(tmp_path: Path) -> None:
+    """Top, recent, and opted-in playlist discovery endpoints map typed compact signals."""
+    respx.get("https://api.example/v1/me/top/tracks").mock(
+        return_value=httpx.Response(200, json={"items": [track_payload()]})
+    )
+    respx.get("https://api.example/v1/me/top/artists").mock(
+        return_value=httpx.Response(200, json={"items": [{"name": "Artist"}]})
+    )
+    respx.get("https://api.example/v1/me/player/recently-played").mock(
+        return_value=httpx.Response(200, json={"items": [{"track": track_payload()}]})
+    )
+    respx.get("https://api.example/v1/me/playlists").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "playlist-1",
+                        "uri": "spotify:playlist:playlist-1",
+                        "name": "My playlist",
+                        "owner": {"display_name": "Me"},
+                    }
+                ]
+            },
+        )
+    )
+    async with httpx.AsyncClient() as http_client:
+        client = await spotify_client(tmp_path, http_client, [])
+        top_tracks = await client.top_tracks("short_term")
+        artists = await client.top_artists("long_term")
+        recent = await client.recently_played_tracks()
+        playlists = await client.user_playlists()
+
+    assert [track.title for track in top_tracks] == ["Track"]
+    assert artists == ["Artist"]
+    assert [track.title for track in recent] == ["Track"]
+    assert playlists[0].title == "My playlist"
+
+
+@respx.mock
 async def test_client_searches_catalog_contexts_and_reads_current_queue(tmp_path: Path) -> None:
     """Explicit catalog searches and visible queues have typed, non-mutating accessors."""
     respx.get("https://api.example/v1/search").mock(

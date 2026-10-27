@@ -142,6 +142,11 @@ def catalog_item_from_playlist(payload: Mapping[str, object]) -> CatalogItem:
     )
 
 
+def artist_names_from_values(values: list[object]) -> list[str]:
+    """Map a Spotify artist page to non-empty artist names in its supplied order."""
+    return [_required_text(_mapping_or_error(value), "name") for value in values]
+
+
 def current_queue_from_payload(payload: Mapping[str, object]) -> CurrentQueue:
     """Map Spotify's queue response, excluding non-track queue entries."""
     current_payload = _mapping(payload.get("currently_playing"))
@@ -164,7 +169,11 @@ def resolved_tracks_from_items(payload: Mapping[str, object]) -> list[ResolvedTr
         item_payload = _mapping(item)
         if item_payload is None:
             continue
-        track_payload = _mapping(item_payload.get("item")) or item_payload
+        track_payload = (
+            _mapping(item_payload.get("item"))
+            or _mapping(item_payload.get("track"))
+            or item_payload
+        )
         track = _resolved_track_or_none(track_payload)
         if track is not None:
             tracks.append(track)

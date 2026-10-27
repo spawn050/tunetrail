@@ -1,7 +1,7 @@
 """Provider-neutral interfaces for infrastructure and application services."""
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Literal, Protocol
 
 from tunetrail.domain.models import (
     ActionHistoryEntry,
@@ -38,6 +38,18 @@ class SpotifyGateway(Protocol):
     async def devices(self) -> Sequence[Device]: ...
 
     async def search_tracks(self, query: str, *, limit: int = 10) -> Sequence[Candidate]: ...
+
+    async def top_tracks(
+        self, time_range: Literal["short_term", "medium_term", "long_term"], *, limit: int = 50
+    ) -> Sequence[ResolvedTrack]: ...
+
+    async def top_artists(
+        self, time_range: Literal["short_term", "medium_term", "long_term"], *, limit: int = 50
+    ) -> Sequence[str]: ...
+
+    async def recently_played_tracks(self, *, limit: int = 50) -> Sequence[ResolvedTrack]: ...
+
+    async def user_playlists(self, *, limit: int = 50) -> Sequence[CatalogItem]: ...
 
     async def search_catalog(
         self, query: str, *, kind: CatalogItemKind, limit: int = 10
