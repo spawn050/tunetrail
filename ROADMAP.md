@@ -323,18 +323,18 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** make TuneTrail a useful keyboard-first Spotify controller before AI features.
 
-- [ ] Design the Textual layout for now playing, device, command input, results, queue preview, notifications, and shortcuts.
-- [ ] Implement keyboard command focus, history, validation, and help/shortcut display.
-- [ ] Implement explicit catalog-search commands for track, artist, album, and playlist contexts.
-- [ ] Display catalog search results with Spotify attribution and selection controls.
-- [ ] Implement a reviewable queue-preview model independent of Spotify mutations.
-- [ ] Implement `play now` confirmation and selected-device playback.
-- [ ] Implement `append to queue` confirmation.
-- [ ] Implement cancel/back behavior that guarantees no player mutation occurs.
-- [ ] Retrieve and display the current Spotify queue when available.
-- [ ] Show active device, current track, playback progress, and command/action status.
-- [ ] Persist a minimal local action history without storing tokens or unnecessary catalog data.
-- [ ] Add Textual interaction tests for search, selection, confirmation, cancellation, and error states.
+- [x] Design the Textual layout for now playing, device, command input, results, queue preview, notifications, and shortcuts.
+- [x] Implement keyboard command focus, history, validation, and help/shortcut display.
+- [x] Implement explicit catalog-search commands for track, artist, album, and playlist contexts.
+- [x] Display catalog search results with Spotify attribution and selection controls.
+- [x] Implement a reviewable queue-preview model independent of Spotify mutations.
+- [x] Implement `play now` confirmation and selected-device playback.
+- [x] Implement `append to queue` confirmation.
+- [x] Implement cancel/back behavior that guarantees no player mutation occurs.
+- [x] Retrieve and display the current Spotify queue when available.
+- [x] Show active device, current track, playback progress, and command/action status.
+- [x] Persist a minimal local action history without storing tokens or unnecessary catalog data.
+- [x] Add Textual interaction tests for search, selection, confirmation, cancellation, and error states.
 
 **Phase gate:** keyboard-only use can search, preview, play, append, cancel, and recover from common Spotify failures without AI features.
 
@@ -477,7 +477,13 @@ Local verification passes with `uv run ruff format --check .`, `uv run ruff chec
 
 ### Phase 2
 
-_No implementation notes yet._
+Implemented explicit `search track|artist|album|playlist <query>` commands, typed catalog contexts, context-track retrieval, and visible current-queue retrieval. The Textual UI now provides command focus/history, Spotify attribution, catalog selection, device/current-track/progress status, a reviewable local queue preview, explicit play-now/append confirmation, cancellation that does not call a player endpoint, and compact action-status feedback.
+
+Confirmed action outcomes are retained in owner-only `action-history.json` beneath TuneTrail's XDG state directory. They contain only timestamp, action kind, Spotify track URIs/count, selected device ID, and outcome; search text, full metadata, queue copies, and credentials are excluded. The temporary command history is in-memory only.
+
+Playlist-context preview requires `playlist-read-private` and `playlist-read-collaborative`; users authorized before this phase must log out and sign in again. Missing permission, unavailable contexts, no active device, and failed/partial player actions surface an actionable TUI notice.
+
+Local verification passes with `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, and `uv run pytest` (42 tests), including Textual search, selection, cancellation, confirmation, append, command-history, and error-state coverage.
 
 ### Phase 3
 
