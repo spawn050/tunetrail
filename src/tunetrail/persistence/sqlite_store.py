@@ -16,6 +16,8 @@ from tunetrail.domain.models import (
     PlaylistSignal,
     ProfileSummary,
 )
+from tunetrail.musicbrainz.matching import RecordingMatch
+from tunetrail.musicbrainz.models import Recording
 
 _T = TypeVar("_T")
 
@@ -70,6 +72,14 @@ _MIGRATIONS: tuple[str, ...] = (
     """,
     """
     CREATE TABLE lastfm_cache (
+        cache_key TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        refreshed_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    );
+    """,
+    """
+    CREATE TABLE musicbrainz_cache (
         cache_key TEXT PRIMARY KEY,
         payload_json TEXT NOT NULL,
         refreshed_at TEXT NOT NULL,
@@ -228,6 +238,53 @@ class SQLitePersonalizationStore:
             refreshed_at,
             expires_at,
         )
+
+    async def musicbrainz_match(self, cache_key: str, *, now: datetime) -> RecordingMatch | None:
+        """Load a fresh, normalized matched recording; misses and failures are not stored."""
+
+        def load(connection: sqlite3.Connection) -> RecordingMatch | None:
+            row = connection.execute(
+                "SELECT payload_json, expires_at FROM musicbrainz_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+            if row is None or _datetime(row["expires_at"]) <= now:
+                return None
+            payload = _json_object(row["payload_json"])
+            return RecordingMatch(
+                recording=Recording.model_validate(payload["recording"]),
+                confidence=float(cast(float, payload["confidence"])),
+                method=str(payload["method"]),
+            )
+
+        return await self._run(load)
+
+    async def save_musicbrainz_match(
+        self, cache_key: str, match: RecordingMatch, *, refreshed_at: datetime, expires_at: datetime
+    ) -> None:
+        """Store one normalized match and limit retained records to 1,000."""
+        if expires_at <= refreshed_at:
+            raise ValueError("cache expiry must follow refresh time")
+        payload = json.dumps(
+            {
+                "recording": match.recording.model_dump(mode="json"),
+                "confidence": match.confidence,
+                "method": match.method,
+            },
+            separators=(",", ":"),
+        )
+
+        def save(connection: sqlite3.Connection) -> None:
+            connection.execute(
+                "INSERT OR REPLACE INTO musicbrainz_cache VALUES (?, ?, ?, ?)",
+                (cache_key, payload, _timestamp(refreshed_at), _timestamp(expires_at)),
+            )
+            connection.execute(
+                "DELETE FROM musicbrainz_cache WHERE cache_key IN "
+                "(SELECT cache_key FROM musicbrainz_cache ORDER BY refreshed_at DESC "
+                "LIMIT -1 OFFSET 1000)"
+            )
+
+        await self._run(save)
 
     async def _run(self, operation: Callable[[sqlite3.Connection], _T]) -> _T:
         """Run a short transaction off the event loop using a fresh SQLite connection."""
@@ -511,6 +568,7 @@ class SQLitePersonalizationStore:
         connection.execute("DELETE FROM listening_session")
         connection.execute("DELETE FROM cache_metadata")
         connection.execute("DELETE FROM lastfm_cache")
+        connection.execute("DELETE FROM musicbrainz_cache")
 
     @staticmethod
     def _export_data(connection: sqlite3.Connection) -> dict[str, object]:

@@ -661,7 +661,13 @@ not yet wired to lookups or queue generation; no accuracy improvement is claimed
 
 The ISRC-first lookup flow now calls the matcher, falls back to name search only
 after an empty ISRC result, and preserves source failures instead of treating them
-as negative matches. This flow is still not wired to queue generation or caching.
+as negative matches. This flow is not yet wired to queue generation.
+
+Normalized successful recording matches can now be cached for 30 days using
+hashed matching-evidence keys, with a 1,000-entry cap and profile-reset cleanup.
+Failures and ambiguous misses are not cached. Cache reads and explicit refreshes
+are separated so the interactive path need not wait for MusicBrainz; integration
+and verification of actual background scheduling remain outstanding.
 
 ### Phase 7
 
