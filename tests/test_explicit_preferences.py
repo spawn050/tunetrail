@@ -8,12 +8,14 @@ from pydantic import ValidationError
 
 from tests.factories import feedback
 from tunetrail.domain.models import (
+    ChatInterpretation,
     ExplicitPreference,
     PreferencePolarity,
     PreferenceSource,
     PreferenceSubject,
 )
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
+from tunetrail.recommendation.explicit_profile import ExplicitProfileService
 
 
 def preference(**updates: object) -> ExplicitPreference:
@@ -52,3 +54,22 @@ def test_preference_rejects_spotify_references_and_ambiguous_recording() -> None
     with pytest.raises(ValidationError):
         preference(subject="recording", name="Song")
     assert preference(subject="recording", name="Song", artist="Artist").artist == "Artist"
+
+
+async def test_chat_service_saves_only_structured_preferences(tmp_path: Path) -> None:
+    class Parser:
+        async def parse(self, request: str) -> ChatInterpretation:
+            assert request == "I always like jazz, private extra words"
+            return ChatInterpretation.model_validate(
+                {"preferences": [{"subject": "genre", "name": "jazz", "polarity": "like"}]}
+            )
+
+    database = tmp_path / "profile.sqlite3"
+    store = SQLitePersonalizationStore(database)
+    service = ExplicitProfileService(store)
+    await service.interpret_chat("I always like jazz, private extra words", Parser())
+    preferences = await service.list_preferences()
+    assert len(preferences) == 1 and preferences[0].source is PreferenceSource.CHAT
+    assert b"private extra words" not in database.read_bytes()
+    await service.reset()
+    assert await service.list_preferences() == []

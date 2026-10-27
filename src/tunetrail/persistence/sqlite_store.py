@@ -107,30 +107,36 @@ class SQLitePersonalizationStore:
 
     async def set_preference(self, preference: ExplicitPreference) -> None:
         """Replace one explicit preference; never consult legacy Spotify records."""
-        identity = json.dumps(
-            [
-                preference.subject.value,
-                preference.name.casefold(),
-                (preference.artist or "").casefold(),
-                (preference.musicbrainz_id or "").lower(),
-            ],
-            separators=(",", ":"),
-        )
+        await self.set_preferences([preference])
+
+    async def set_preferences(self, preferences: Sequence[ExplicitPreference]) -> None:
+        """Atomically save a bounded batch of explicit preferences."""
 
         def save(connection: sqlite3.Connection) -> None:
-            exists = connection.execute(
-                "SELECT 1 FROM explicit_preference WHERE identity_key = ?", (identity,)
-            ).fetchone()
-            count = connection.execute("SELECT COUNT(*) FROM explicit_preference").fetchone()[0]
-            if exists is None and count >= 1000:
-                raise ValueError(
-                    "Explicit preference limit reached; reset or update existing entries."
+            connection.execute("BEGIN IMMEDIATE")
+            for preference in preferences:
+                identity = json.dumps(
+                    [
+                        preference.subject.value,
+                        preference.name.casefold(),
+                        (preference.artist or "").casefold(),
+                        (preference.musicbrainz_id or "").lower(),
+                    ],
+                    separators=(",", ":"),
                 )
-            connection.execute(
-                "INSERT INTO explicit_preference VALUES (?, ?) "
-                "ON CONFLICT(identity_key) DO UPDATE SET value_json = excluded.value_json",
-                (identity, preference.model_dump_json()),
-            )
+                exists = connection.execute(
+                    "SELECT 1 FROM explicit_preference WHERE identity_key = ?", (identity,)
+                ).fetchone()
+                count = connection.execute("SELECT COUNT(*) FROM explicit_preference").fetchone()[0]
+                if exists is None and count >= 1000:
+                    raise ValueError(
+                        "Explicit preference limit reached; reset or update existing entries."
+                    )
+                connection.execute(
+                    "INSERT INTO explicit_preference VALUES (?, ?) "
+                    "ON CONFLICT(identity_key) DO UPDATE SET value_json = excluded.value_json",
+                    (identity, preference.model_dump_json()),
+                )
 
         await self._run(save)
 
