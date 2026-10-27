@@ -698,7 +698,14 @@ independent and preferably live comparisons. No live acceptance was performed.
 
 ### Phase 7
 
-_No implementation notes yet._
+Preparatory documentation and a provisional no-go are recorded in
+`docs/source-policy-review.md`. The current Spotify policy raises unresolved risks
+for Spotify-derived profiling, benchmarking, and transfer of candidate metadata
+to external services; this also affects existing Phase 4–6 flows, not just
+ReccoBeats. The ReccoBeats documentation identifies Spotify-derived base metadata
+and unpublished rate limits, while its rendered recommendation API reference does
+not provide a complete schema. No runtime adapter, live calls, policy clearance,
+or final evidence-based go/no-go has been completed. Phase 7's gate remains open.
 
 ### Phase 8
 

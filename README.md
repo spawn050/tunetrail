@@ -45,6 +45,11 @@ are personalized from local taste signals rather than treated as claimed audio a
 
 ## Optional Last.fm enrichment
 
+**Policy review pending:** Spotify's current developer policy raises unresolved
+questions about Spotify-derived profiling and transfer of candidate metadata to
+external services. See [the preliminary source-policy review](docs/source-policy-review.md)
+before enabling these integrations or performing live evaluations.
+
 To add Last.fm discovery, obtain an [API key](https://www.last.fm/api/account/create)
 and set both values in your untracked project-root `.env`:
 
