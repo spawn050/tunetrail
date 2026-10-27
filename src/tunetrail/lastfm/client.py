@@ -17,6 +17,8 @@ from tunetrail.lastfm.errors import (
 
 Sleep = Callable[[float], Awaitable[None]]
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_CONCURRENT_REQUESTS = 4
+_MAX_RETRY_DELAY = 5.0
 
 
 class LastfmClient:
@@ -42,50 +44,53 @@ class LastfmClient:
         self._api_url = api_url
         self._max_get_attempts = max_get_attempts
         self._sleep = sleep
+        self._request_slots = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
 
     async def user_top_artists(self, *, limit: int = 20) -> Sequence[str]:
         """Return a bounded configured user's most-played Last.fm artists."""
         payload = await self._request("user.gettopartists", limit=limit)
         artists = _values(_nested(payload, "topartists"), "artist")
-        return [_text(_mapping(value, "artist"), "name") for value in artists]
+        return [_text(_mapping(value, "artist"), "name") for value in artists[:limit]]
 
     async def user_top_tracks(self, *, limit: int = 20) -> Sequence[Candidate]:
         """Return a bounded configured user's most-played Last.fm track suggestions."""
         payload = await self._request("user.gettoptracks", limit=limit)
-        return _track_candidates(_values(_nested(payload, "toptracks"), "track"))
+        return _track_candidates(_values(_nested(payload, "toptracks"), "track")[:limit])
 
     async def user_recent_tracks(self, *, limit: int = 20) -> Sequence[Candidate]:
         """Return a bounded configured user's recent Last.fm track suggestions."""
         payload = await self._request("user.getrecenttracks", limit=limit)
-        return _track_candidates(_values(_nested(payload, "recenttracks"), "track"))
+        return _track_candidates(_values(_nested(payload, "recenttracks"), "track")[:limit])
 
     async def similar_tracks(
         self, *, artist: str, title: str, limit: int = 10
     ) -> Sequence[Candidate]:
         """Return bounded community-similar Last.fm tracks for one seed track."""
         payload = await self._request("track.getsimilar", artist=artist, track=title, limit=limit)
-        return _track_candidates(_values(_nested(payload, "similartracks"), "track"), similar=True)
+        return _track_candidates(
+            _values(_nested(payload, "similartracks"), "track")[:limit], similar=True
+        )
 
     async def similar_artists(self, artist: str, *, limit: int = 5) -> Sequence[str]:
         """Return bounded community-similar artists for one artist seed."""
         payload = await self._request("artist.getsimilar", artist=artist, limit=limit)
         artists = _values(_nested(payload, "similarartists"), "artist")
-        return [_text(_mapping(value, "artist"), "name") for value in artists]
+        return [_text(_mapping(value, "artist"), "name") for value in artists[:limit]]
 
     async def artist_top_tracks(self, artist: str, *, limit: int = 3) -> Sequence[Candidate]:
         """Return a few Last.fm top tracks for a similar-artist expansion seed."""
         payload = await self._request("artist.gettoptracks", artist=artist, limit=limit)
-        return _track_candidates(_values(_nested(payload, "toptracks"), "track"))
+        return _track_candidates(_values(_nested(payload, "toptracks"), "track")[:limit])
 
     async def track_tags(self, *, artist: str, title: str, limit: int = 5) -> Sequence[str]:
         """Return normalized community tags for a Last.fm track."""
         payload = await self._request("track.gettoptags", artist=artist, track=title, limit=limit)
-        return _tag_names(_nested(payload, "toptags"))
+        return _tag_names(_nested(payload, "toptags"))[:limit]
 
     async def artist_tags(self, artist: str, *, limit: int = 5) -> Sequence[str]:
         """Return normalized community tags for a Last.fm artist."""
         payload = await self._request("artist.gettoptags", artist=artist, limit=limit)
-        return _tag_names(_nested(payload, "toptags"))
+        return _tag_names(_nested(payload, "toptags"))[:limit]
 
     async def _request(self, method: str, **params: str | int) -> Mapping[str, object]:
         """Call one read-only Last.fm method with safe bounded retries and error mapping."""
@@ -98,7 +103,8 @@ class LastfmClient:
         }
         for attempt in range(self._max_get_attempts):
             try:
-                response = await self._http_client.get(self._api_url, params=request_params)
+                async with self._request_slots:
+                    response = await self._http_client.get(self._api_url, params=request_params)
             except httpx.HTTPError as error:
                 if attempt < self._max_get_attempts - 1:
                     await self._sleep(float(2**attempt))
@@ -110,7 +116,10 @@ class LastfmClient:
                 response.status_code in _RETRYABLE_STATUS_CODES
                 and attempt < self._max_get_attempts - 1
             ):
-                await self._sleep(_retry_after(response, attempt))
+                delay = _retry_after(response, attempt)
+                if delay > _MAX_RETRY_DELAY:
+                    raise _http_error(response)
+                await self._sleep(delay)
                 continue
             if response.is_error:
                 raise _http_error(response)
@@ -197,14 +206,13 @@ def _lastfm_error(payload: Mapping[str, object], method: str) -> LastfmApiError 
     code = payload.get("error")
     if not isinstance(code, int):
         return None
-    message = _optional_text(payload.get("message")) or "Last.fm could not complete that request."
     if code == 29:
         return LastfmRateLimitError(
             "Last.fm is rate-limiting requests; Spotify-only results remain available."
         )
     if method.startswith("user.") and code in {6, 17}:
         return LastfmProfileError("The configured Last.fm profile is unavailable or private.")
-    return LastfmApiError(message)
+    return LastfmApiError("Last.fm could not complete that request.")
 
 
 def _http_error(response: httpx.Response) -> LastfmApiError:

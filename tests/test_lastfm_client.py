@@ -113,3 +113,29 @@ async def test_client_marks_missing_user_profile_as_optional_source_failure() ->
     async with httpx.AsyncClient() as http_client:
         with pytest.raises(LastfmProfileError):
             await client(http_client, []).user_recent_tracks()
+
+
+@respx.mock
+async def test_long_retry_after_falls_back_without_retrying_early() -> None:
+    """A long rate limit must not stall the preview or trigger an early retry."""
+    route = respx.get("https://lastfm.example/2.0/").mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "60"})
+    )
+    sleeps: list[float] = []
+    async with httpx.AsyncClient() as http_client:
+        with pytest.raises(LastfmRateLimitError):
+            await client(http_client, sleeps).user_top_tracks()
+    assert route.call_count == 1
+    assert sleeps == []
+
+
+@respx.mock
+async def test_client_caps_unexpectedly_large_responses() -> None:
+    """An API response exceeding the requested limit cannot grow cached history unbounded."""
+    respx.get("https://lastfm.example/2.0/").mock(
+        return_value=httpx.Response(
+            200, json={"topartists": {"artist": [{"name": "First"}, {"name": "Second"}]}}
+        )
+    )
+    async with httpx.AsyncClient() as http_client:
+        assert await client(http_client, []).user_top_artists(limit=1) == ["First"]
