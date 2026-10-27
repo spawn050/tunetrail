@@ -7,6 +7,8 @@ keyboard-driven Spotify playback actions.
 
 ```bash
 uv sync --all-extras
+cp .env.example .env
+# Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env
 uv run tunetrail
 ```
 

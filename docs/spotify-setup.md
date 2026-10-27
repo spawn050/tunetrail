@@ -17,19 +17,21 @@ playback and queue control.
    If you set a different local callback URI, add that exact URI to Spotify and
    set `TUNETRAIL_SPOTIFY_REDIRECT_URI` to the same value.
 
-4. Configure the client ID in a local, Git-ignored `.env` file or in
-   `~/.config/tunetrail/config.toml`:
+4. Create the local, Git-ignored configuration file from the example:
 
    ```bash
+   cp .env.example .env
+   ```
+
+   Add the Client ID to `.env`:
+
+   ```text
    TUNETRAIL_SPOTIFY_CLIENT_ID=your-client-id
    ```
 
-   ```toml
-   spotify_client_id = "your-client-id"
-   ```
-
-   The client ID is public. Never put an access token, refresh token, API key,
-   or any other secret in a tracked file.
+   TuneTrail loads `.env` automatically at startup. Shell environment variables
+   override `.env` values when needed. The client ID is public. Never put an
+   access token, refresh token, API key, or any other secret in a tracked file.
 
 ## Requested scopes
 

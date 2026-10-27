@@ -3,20 +3,41 @@
 import stat
 from pathlib import Path
 
+import pytest
+
 from tunetrail.config import Settings
 from tunetrail.paths import AppPaths
 
 
-def test_settings_loads_file_then_environment(tmp_path: Path) -> None:
-    """Environment variables take precedence over local TOML configuration."""
-    paths = AppPaths(tmp_path / "config", tmp_path / "state", tmp_path / "cache", tmp_path / "data")
-    paths.config_dir.mkdir()
-    paths.settings_file.write_text('llm_model = "from-file"\nllm_temperature = 0.3\n')
+def test_settings_loads_dotenv_then_environment(tmp_path: Path) -> None:
+    """Real environment variables take precedence over project `.env` values."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "TUNETRAIL_SPOTIFY_CLIENT_ID=from-dotenv\n"
+        "TUNETRAIL_LLM_MODEL=from-dotenv\n"
+        "TUNETRAIL_LLM_TEMPERATURE=0.3\n",
+        encoding="utf-8",
+    )
 
-    settings = Settings.load(paths, {"TUNETRAIL_LLM_MODEL": "from-environment"})
+    settings = Settings.load({"TUNETRAIL_LLM_MODEL": "from-environment"}, env_file=env_file)
 
+    assert settings.spotify_client_id == "from-dotenv"
     assert settings.llm_model == "from-environment"
     assert settings.llm_temperature == 0.3
+
+
+def test_settings_automatically_loads_project_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Startup finds `.env` in the current project directory without extra flags."""
+    (tmp_path / ".env").write_text(
+        "TUNETRAIL_SPOTIFY_CLIENT_ID=from-project-dotenv\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    settings = Settings.load({})
+
+    assert settings.spotify_client_id == "from-project-dotenv"
 
 
 def test_default_paths_honor_xdg_locations() -> None:

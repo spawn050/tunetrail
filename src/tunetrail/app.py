@@ -15,10 +15,10 @@ def build_app() -> SpotifyControlApp:
     """Build TuneTrail's Spotify control interface from local settings and paths."""
     paths = AppPaths.default()
     paths.create_directories()
-    settings = Settings.load(paths)
+    settings = Settings.load()
     if settings.spotify_client_id is None:
         return SpotifyControlApp(
-            configuration_error="Set TUNETRAIL_SPOTIFY_CLIENT_ID before signing in."
+            configuration_error="Copy .env.example to .env and set TUNETRAIL_SPOTIFY_CLIENT_ID."
         )
     http_client = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
     authenticator = SpotifyAuthenticator(

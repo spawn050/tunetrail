@@ -15,11 +15,6 @@ class AppPaths:
     data_dir: Path
 
     @property
-    def settings_file(self) -> Path:
-        """Return the optional local settings file."""
-        return self.config_dir / "config.toml"
-
-    @property
     def auth_file(self) -> Path:
         """Return the default file for Spotify token material."""
         return self.config_dir / "auth.json"

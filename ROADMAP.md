@@ -210,7 +210,7 @@ SQLite stores only application-owned signals:
 
 Keyring is optional rather than required for the personal-tool use case.
 
-- Development secrets belong in a Git-ignored `.env` file with `0600` permissions.
+- Static setup uses the Git-ignored project-root `.env` file, loaded automatically; shell environment variables override it. Copy `.env.example` to begin.
 - Spotify token material belongs in `~/.config/tunetrail/auth.json`, also `0600`.
 - Use Spotify PKCE, so no Spotify client secret is stored locally.
 - The Spotify client ID is not secret; refresh tokens and LLM/API keys are secret.
