@@ -676,8 +676,10 @@ A missing year is filled only for a matching album title with a single supported
 release year, excluding common edition markers. The queue explains this year
 evidence and preserves Spotify identity and the approval boundary. This is a
 conservative partial implementation, not a verified improvement in era accuracy;
-aliases are not yet fetched during name search and release/edition handling and
-representative comparisons remain incomplete. Phase 6's gate remains open.
+release/edition handling and representative comparisons remain incomplete. Phase
+6's gate remains open. Name searches now fetch aliases for all artists in the
+bounded result page before deciding uniqueness; pages requiring more than five
+artist lookups are rejected instead of making a decision on partial evidence.
 
 ### Phase 7
 

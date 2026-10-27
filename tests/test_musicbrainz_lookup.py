@@ -24,6 +24,10 @@ class Lookup:
         self.calls.append("search")
         return self.search_result
 
+    async def artist(self, mbid: str) -> Artist:
+        self.calls.append("artist")
+        return Artist(id=mbid, name="Artist")
+
 
 def make_candidate() -> Candidate:
     return Candidate(
@@ -48,7 +52,7 @@ async def test_isrc_match_and_empty_fallback() -> None:
     assert direct.calls == ["isrc"]
     fallback = Lookup([], [make_recording("one")])
     assert await lookup_recording(make_candidate(), fallback) is not None
-    assert fallback.calls == ["isrc", "search"]
+    assert fallback.calls == ["isrc", "search", "artist"]
 
 
 async def test_ambiguous_isrc_does_not_fall_back() -> None:
@@ -64,3 +68,30 @@ async def test_failure_is_not_treated_as_a_cacheable_miss() -> None:
 
     with pytest.raises(MusicBrainzError):
         await lookup_recording(make_candidate(), Failing([], []))
+
+
+async def test_aliases_are_fetched_before_deciding_ambiguity() -> None:
+    class Aliases(Lookup):
+        async def artist(self, mbid: str) -> Artist:
+            self.calls.append("artist")
+            return Artist(id=mbid, name="Canonical", aliases=["Artist"])
+
+    candidate = make_candidate().model_copy(update={"isrc": None})
+    recordings = [Recording(id="one", title="Song", artists=[Artist(id="a", name="Canonical")])]
+    lookup = Aliases([], recordings)
+    assert await lookup_recording(candidate, lookup) is not None
+    assert lookup.calls == ["search", "artist"]
+    duplicate = recordings + [recordings[0].model_copy(update={"id": "two"})]
+    assert await lookup_recording(candidate, Aliases([], duplicate)) is None
+
+
+async def test_too_many_artists_fails_closed_without_partial_alias_checks() -> None:
+    recordings = [
+        Recording(id=str(index), title="Song", artists=[Artist(id=str(index), name="Artist")])
+        for index in range(6)
+    ]
+    lookup = Lookup([], recordings)
+    assert (
+        await lookup_recording(make_candidate().model_copy(update={"isrc": None}), lookup) is None
+    )
+    assert lookup.calls == ["search"]

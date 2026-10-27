@@ -23,6 +23,9 @@ class FakeLookup:
     async def search(self, *, artist: str, title: str) -> list[Recording]:
         raise AssertionError("ISRC match should not trigger search")
 
+    async def artist(self, mbid: str) -> Artist:
+        raise AssertionError("ISRC match should not trigger artist lookup")
+
 
 async def test_cache_persists_only_match_and_reset(tmp_path: Path) -> None:
     store = SQLitePersonalizationStore(tmp_path / "store.sqlite")
