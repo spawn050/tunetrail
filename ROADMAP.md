@@ -407,14 +407,14 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** improve metadata quality and cross-source matching without slowing interactive use.
 
-- [ ] Implement a typed MusicBrainz client with an application-specific User-Agent.
+- [x] Implement a typed MusicBrainz client with an application-specific User-Agent.
 - [ ] Implement a global one-request-per-second client-side rate limiter and `503` recovery.
 - [ ] Add canonical artist/recording/release lookup models.
 - [ ] Implement ISRC-first lookup and link storage.
 - [ ] Implement conservative normalized artist/title/duration fallback matching with confidence scores.
 - [ ] Retrieve aliases, release dates, release types, and relevant genres/tags.
 - [ ] Improve era/year validation and identify likely remaster/edition ambiguity.
-- [ ] Cache stable MusicBrainz metadata; keep enrichment outside the interactive hot path whenever possible.
+- [x] Cache stable MusicBrainz metadata; keep enrichment outside the interactive hot path whenever possible.
 - [ ] Add queue/explanation annotations when canonical metadata changes an interpretation.
 - [ ] Add tests for aliases, duplicate recordings, remasters, ISRC matches, low-confidence matches, limiter behavior, and API failures.
 
