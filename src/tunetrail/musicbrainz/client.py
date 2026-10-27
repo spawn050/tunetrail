@@ -241,7 +241,8 @@ def _recordings(payload: Mapping[str, object]) -> list[Recording]:
                         # The API may omit linked releases or return only the first page.
                         # Absence of an explicit total is not proof of completeness.
                         "releases_complete": (
-                            isinstance(value.get("release-count"), int)
+                            type(value.get("release-count")) is int
+                            and isinstance(value.get("releases"), list)
                             and value.get("release-count") == len(releases)
                             and len(_list(value.get("releases"))) == len(releases)
                         ),

@@ -73,6 +73,32 @@ async def test_missing_release_count_is_not_assumed_complete(tmp_path: Path) -> 
     assert not result[0].releases_complete
 
 
+@pytest.mark.parametrize(
+    ("count", "releases"),
+    [
+        (True, [{"id": "r", "title": "Album", "date": "2008"}]),
+        (0, None),
+        (2, [{"id": "r", "title": "Album", "date": "2008"}]),
+    ],
+)
+async def test_malformed_release_count_does_not_prove_completeness(
+    tmp_path: Path, count: object, releases: object
+) -> None:
+    payload = {
+        "count": 1,
+        "recordings": [
+            {"id": "one", "title": "Song", "release-count": count, "releases": releases}
+        ],
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+    ) as http:
+        result = await MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock")).search(
+            artist="Artist", title="Song"
+        )
+    assert not result[0].releases_complete
+
+
 async def test_shared_limiter_serializes_concurrent_clients(tmp_path: Path) -> None:
     """Concurrent calls through separate clients cannot exceed one start per second."""
     starts: list[float] = []
