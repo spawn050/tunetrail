@@ -110,6 +110,33 @@ def test_ranker_applies_duration_diversity_and_recent_track_penalties() -> None:
     assert "taste affinity" in preview.items[0].explanation
 
 
+def test_ranker_deduplicates_artist_and_album_when_diverse_choices_exist() -> None:
+    """A lower-scoring distinct artist wins over a duplicate when the queue has an alternative."""
+    tracks = rank_personalized_candidates(
+        [
+            spotify_candidate(),
+            spotify_candidate(
+                source_id="sameartist",
+                title="Same artist",
+                provenance={"spotify_uri": "spotify:track:sameartist"},
+            ),
+            spotify_candidate(
+                source_id="diverse",
+                title="Diverse",
+                artists=["Other Artist"],
+                album="Other Album",
+                provenance={"spotify_uri": "spotify:track:diverse"},
+            ),
+        ],
+        intent(queue_size=2),
+        profile=profile(),
+        feedback=[],
+        generated_uris=[],
+    )
+
+    assert [track.spotify_uri for track in tracks] == ["spotify:track:one", "spotify:track:diverse"]
+
+
 def test_vague_request_requires_a_refreshed_profile_but_not_generic_search() -> None:
     """Vague mood requests cannot silently degrade to public Spotify playlist search."""
     with pytest.raises(PersonalizationClarification, match="Refresh"):

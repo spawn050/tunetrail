@@ -185,6 +185,9 @@ def _base_scores(
         "taste_affinity": taste_affinity,
         "familiarity": familiarity,
         "feedback": feedback_score,
+        # Spotify no longer supplies reliable audio-feature/mood data. Keep this visible rather
+        # than pretending a profile seed proves a mood match.
+        "mood_activity_compatibility": 0.0,
         "recent_play_penalty": -4.0 if recently_seen else 0.0,
         "source_confidence": candidate.source_confidence,
     }
@@ -206,13 +209,18 @@ def _select_diverse_duration_fit(
             key=lambda track: _selection_score(track, selected_artists, selected_albums),
             reverse=True,
         )
+        duration_compatible = [
+            track
+            for track in ranked
+            if target_ms is None or not selected or elapsed_ms + track.duration_ms <= target_ms
+        ]
         chosen = next(
             (
                 track
-                for track in ranked
-                if target_ms is None or not selected or elapsed_ms + track.duration_ms <= target_ms
+                for track in duration_compatible
+                if _is_diverse(track, selected_artists, selected_albums)
             ),
-            None,
+            duration_compatible[0] if duration_compatible else None,
         )
         if chosen is None:
             break
@@ -240,6 +248,15 @@ def _selection_score(
     if track.album is not None and _normal(track.album) in selected_albums:
         score -= 1.0
     return score
+
+
+def _is_diverse(
+    track: ResolvedTrack, selected_artists: set[str], selected_albums: set[str]
+) -> bool:
+    """Prefer unique artists and albums whenever the candidate set makes that possible."""
+    return not any(_normal(artist) in selected_artists for artist in track.artists) and (
+        track.album is None or _normal(track.album) not in selected_albums
+    )
 
 
 def _familiarity_score(preference: FamiliarityPreference, known: bool) -> float:

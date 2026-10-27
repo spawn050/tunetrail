@@ -1,0 +1,64 @@
+[
+  {
+    "name": "peaceful study",
+    "intent": {"moods": ["peaceful"], "activities": ["studying"], "queue_size": 2},
+    "profile": {"favorite_artists": ["Study Artist"]},
+    "candidates": [
+      {"source_id": "study1", "title": "Quiet One", "artists": ["Study Artist"], "album": "Study", "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:study1"}},
+      {"source_id": "study2", "title": "Quiet Two", "artists": ["Other Artist"], "album": "Elsewhere", "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:study2"}}
+    ],
+    "expected_uris": ["spotify:track:study1", "spotify:track:study2"]
+  },
+  {
+    "name": "familiar preference",
+    "intent": {"familiarity": "familiar", "queue_size": 2},
+    "profile": {"favorite_track_uris": ["spotify:track:known"]},
+    "candidates": [
+      {"source_id": "new", "title": "New", "artists": ["New Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:new"}},
+      {"source_id": "known", "title": "Known", "artists": ["Known Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:known"}}
+    ],
+    "expected_uris": ["spotify:track:known", "spotify:track:new"]
+  },
+  {
+    "name": "discovery preference",
+    "intent": {"familiarity": "discovery", "queue_size": 2},
+    "profile": {"favorite_track_uris": ["spotify:track:known"]},
+    "candidates": [
+      {"source_id": "known", "title": "Known", "artists": ["Known Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:known"}},
+      {"source_id": "new", "title": "New", "artists": ["New Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:new"}}
+    ],
+    "expected_uris": ["spotify:track:new", "spotify:track:known"]
+  },
+  {
+    "name": "duration fitting",
+    "intent": {"duration_minutes": 6, "queue_size": 3},
+    "profile": {"favorite_artists": ["Artist"]},
+    "candidates": [
+      {"source_id": "duration1", "title": "One", "artists": ["Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:duration1"}},
+      {"source_id": "duration2", "title": "Two", "artists": ["Other"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:duration2"}},
+      {"source_id": "duration3", "title": "Three", "artists": ["Third"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:duration3"}}
+    ],
+    "expected_uris": ["spotify:track:duration1", "spotify:track:duration2"]
+  },
+  {
+    "name": "explicit content exclusion",
+    "intent": {"explicit_allowed": false, "queue_size": 2},
+    "profile": {"favorite_artists": ["Artist"]},
+    "candidates": [
+      {"source_id": "clean", "title": "Clean", "artists": ["Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:clean"}},
+      {"source_id": "explicit", "title": "Explicit", "artists": ["Artist"], "duration_ms": 180000, "explicit": true, "year": 2020, "provenance": {"spotify_uri": "spotify:track:explicit"}}
+    ],
+    "expected_uris": ["spotify:track:clean"]
+  },
+  {
+    "name": "generated repetition penalty",
+    "intent": {"queue_size": 2},
+    "profile": {"favorite_artists": ["Artist"]},
+    "generated_uris": ["spotify:track:repeat"],
+    "candidates": [
+      {"source_id": "repeat", "title": "Repeat", "artists": ["Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:repeat"}},
+      {"source_id": "fresh", "title": "Fresh", "artists": ["Artist"], "duration_ms": 180000, "explicit": false, "year": 2020, "provenance": {"spotify_uri": "spotify:track:fresh"}}
+    ],
+    "expected_uris": ["spotify:track:fresh", "spotify:track:repeat"]
+  }
+]
