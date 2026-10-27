@@ -652,7 +652,12 @@ Initial work adds a read-only MusicBrainz client and normalized artist, recordin
 and release models. A shared in-process/event-loop limiter spaces requests and
 retries by at least one second; the User-Agent identifies the project repository.
 The client is not yet connected to queue generation. Cross-process coordination,
-matching, caching, integration, and Phase 6 acceptance remain outstanding.
+caching, integration, and Phase 6 acceptance remain outstanding.
+
+An isolated matcher now prefers matching ISRCs and otherwise requires normalized
+artist/title agreement and compatible duration, accepting known artist aliases.
+It rejects conflicting ISRCs and equally supported distinct recording IDs. It is
+not yet wired to lookups or queue generation; no accuracy improvement is claimed.
 
 ### Phase 7
 
