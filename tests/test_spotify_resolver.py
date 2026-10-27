@@ -119,3 +119,19 @@ async def test_resolver_matches_non_ascii_names_without_collapsing_them() -> Non
     assert (
         await resolver.resolve(lastfm_candidate(title="夜に駆ける", artists=["東京"])) is not None
     )
+
+
+async def test_resolver_rejects_equally_supported_distinct_spotify_tracks() -> None:
+    """Identical metadata on different URIs cannot establish which edition is correct."""
+    results = [
+        candidate(
+            title="Love Story",
+            artists=["Taylor Swift"],
+            duration_ms=235_000,
+            source_id=identifier,
+            provenance={"spotify_uri": f"spotify:track:{identifier}"},
+        )
+        for identifier in ("original", "alternative")
+    ]
+    resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify(results)))
+    assert await resolver.resolve(lastfm_candidate()) is None

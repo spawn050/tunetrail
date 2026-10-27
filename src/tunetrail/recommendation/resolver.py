@@ -23,6 +23,14 @@ class SpotifyCandidateResolver:
         spotify_uri = best.provenance.get("spotify_uri")
         if confidence < _MINIMUM_MATCH_CONFIDENCE or spotify_uri is None:
             return None
+        competing_uris = {
+            uri
+            for result in results
+            if _match_confidence(candidate, result) == confidence
+            if (uri := result.provenance.get("spotify_uri")) is not None
+        }
+        if len(competing_uris) > 1:
+            return None
         provenance = {
             **candidate.provenance,
             "spotify_uri": spotify_uri,
