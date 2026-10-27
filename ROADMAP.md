@@ -388,17 +388,17 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** optionally improve discovery through Last.fm history, tags, and similarity links.
 
-- [ ] Add opt-in Last.fm username/API-key configuration and credential handling.
-- [ ] Implement a typed Last.fm client with timeout, error normalization, retry, and rate-limit behavior.
-- [ ] Implement top-track, top-artist, and recent-track import for the configured user.
-- [ ] Implement artist-similarity and track-similarity candidate expansion.
-- [ ] Implement artist/track tag retrieval and normalization into TuneTrail mood/activity tags.
-- [ ] Add cache expiry rules for Last.fm profile and similarity responses.
-- [ ] Add Last.fm provenance to candidates and queue explanations.
-- [ ] Resolve Last.fm candidates conservatively through Spotify before ranking.
-- [ ] Ensure missing, private, stale, or mismatched Last.fm history does not prevent Spotify-only operation.
-- [ ] Add mocked Last.fm tests for valid data, unavailable API, rate limiting, and non-resolvable candidates.
-- [ ] Compare Spotify-only and Last.fm-enhanced outputs with the fixed evaluation suite; record findings below this phase.
+- [x] Add opt-in Last.fm username/API-key configuration and credential handling.
+- [x] Implement a typed Last.fm client with timeout, error normalization, retry, and rate-limit behavior.
+- [x] Implement top-track, top-artist, and recent-track import for the configured user.
+- [x] Implement artist-similarity and track-similarity candidate expansion.
+- [x] Implement artist/track tag retrieval and normalization into TuneTrail mood/activity tags.
+- [x] Add cache expiry rules for Last.fm profile and similarity responses.
+- [x] Add Last.fm provenance to candidates and queue explanations.
+- [x] Resolve Last.fm candidates conservatively through Spotify before ranking.
+- [x] Ensure missing, private, stale, or mismatched Last.fm history does not prevent Spotify-only operation.
+- [x] Add mocked Last.fm tests for valid data, unavailable API, rate limiting, and non-resolvable candidates.
+- [x] Compare Spotify-only and Last.fm-enhanced outputs with the fixed evaluation suite; record findings below this phase.
 
 **Phase gate:** Last.fm is opt-in, failure-tolerant, and measurably increases valid candidate diversity without lowering Spotify-resolution accuracy.
 
@@ -595,7 +595,27 @@ repetition constraints.
 
 ### Phase 5
 
-_No implementation notes yet._
+Last.fm is enabled only when both API key and username are configured. Public
+reads require no Last.fm session. Profile data is cached locally with a
+username-hashed key for six hours; bounded normalized similarity results expire
+after 24 hours. Profile reset removes the cache. Top and recent tracks and top
+artists seed discovery; community tags contribute transparent mood/activity
+evidence, not inferred audio features. Last.fm candidates must resolve to Spotify
+using exact normalized artist/title and compatible duration when available.
+Unexpected optional-source failures fall back to Spotify before the mandatory
+approval interrupt. Long rate-limit waits cause fallback rather than early retry.
+
+The fixed synthetic peaceful-study comparison increased candidates and distinct
+artists from 2 to 4, accepted 2 of 3 external suggestions, and correctly matched
+both accepted suggestions (2/2 labelled precision); it rejected an ambiguous live
+edition. This small constructed fixture uses one Spotify baseline case and does not
+measure real-world resolution accuracy, ranking quality, service availability, or
+representative listener diversity. The Phase 5 gate **remains open** until broader,
+independently labelled and preferably live comparisons establish the stated
+diversity and accuracy requirements. Live acceptance also requires credentials, a
+reauthorized Spotify session, and an active Premium device; it has not been run.
+Local verification passes `uv run ruff format --check .`, `uv run ruff check .`,
+`uv run pyright`, and `uv run pytest` (108 tests).
 
 ### Phase 6
 

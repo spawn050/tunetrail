@@ -17,7 +17,7 @@ redirect URI and client ID as described in [Spotify setup](docs/spotify-setup.md
 
 ## Natural-language requests
 
-TuneTrail supports direct and Spotify-only personalized requests while retaining
+TuneTrail supports direct and personalized requests while retaining
 the explicit catalog commands below. Add these optional settings to your untracked `.env` to enable
 natural-language parsing through OpenRouter:
 
@@ -42,6 +42,30 @@ The LLM parses intent only; Spotify retrieval, filtering, ranking, URI resolutio
 and player calls remain deterministic application code. Spotify does not provide
 reliable current mood/audio-feature data for this flow, so mood/activity requests
 are personalized from local taste signals rather than treated as claimed audio analysis.
+
+## Optional Last.fm enrichment
+
+To add Last.fm discovery, obtain an [API key](https://www.last.fm/api/account/create)
+and set both values in your untracked project-root `.env`:
+
+```text
+TUNETRAIL_LASTFM_API_KEY=...
+TUNETRAIL_LASTFM_USERNAME=...
+```
+
+Environment variables override `.env`. Public profile reads need no Last.fm
+session or password. If either setting is absent, enrichment is disabled. A
+missing or private profile, rate limit, or Last.fm outage falls back to Spotify-only
+results. Spotify and OpenRouter setup are still required for the natural-language
+workflow.
+
+TuneTrail uses bounded top and recent listening history to seed similar-track and
+similar-artist searches; community tags can provide approximate mood/activity
+evidence, not audio analysis. Suggestions must be conservatively matched to
+Spotify tracks before they can appear in a preview. Playback still requires your
+explicit confirmation. The local SQLite database caches normalized profile signals
+for six hours and similarity results for 24 hours; profile reset removes this
+cache. No Last.fm API key, raw response, or Last.fm session is stored there.
 
 ## Catalog queue workflow
 
