@@ -4,7 +4,7 @@
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Literal, Protocol, TypedDict, cast
 from uuid import uuid4
@@ -24,7 +24,12 @@ from tunetrail.domain.models import (
     QueuePreview,
     ResolvedTrack,
 )
-from tunetrail.domain.protocols import IntentParser, PersonalizationStore, SpotifyGateway
+from tunetrail.domain.protocols import (
+    CandidateSourceProvider,
+    IntentParser,
+    PersonalizationStore,
+    SpotifyGateway,
+)
 from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.llm.intent_parser import IntentParseError
 from tunetrail.recommendation.ranking import (
@@ -69,10 +74,11 @@ class NaturalLanguageRequestGraph:
         parser: IntentParser,
         spotify: SpotifyGateway,
         store: PersonalizationStore | None = None,
+        lastfm_enrichment: CandidateSourceProvider | None = None,
     ) -> None:
         self._parser = parser
         self._spotify = spotify
-        self._graph: CompiledRequestGraph = _build_graph(parser, spotify, store)
+        self._graph: CompiledRequestGraph = _build_graph(parser, spotify, store, lastfm_enrichment)
         self._thread_id: str | None = None
 
     async def start(self, request: str, *, device_id: str | None = None) -> RequestGraphResult:
@@ -97,7 +103,12 @@ class NaturalLanguageRequestGraph:
         return {"configurable": {"thread_id": self._thread_id}}
 
 
-def _build_graph(parser: IntentParser, spotify: SpotifyGateway, store: PersonalizationStore | None):  # type: ignore[no-untyped-def]
+def _build_graph(
+    parser: IntentParser,
+    spotify: SpotifyGateway,
+    store: PersonalizationStore | None,
+    lastfm_enrichment: CandidateSourceProvider | None,
+):  # type: ignore[no-untyped-def]
     """Compile the fixed graph; all player mutation is downstream of `interrupt`."""
     graph = StateGraph(RequestState)
 
@@ -148,7 +159,15 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway, store: Personali
                 "clarification": str(error),
                 "outcome": RequestOutcome.CLARIFICATION_NEEDED,
             }
-        return {"candidates": candidates}
+        if lastfm_enrichment is None:
+            return {"candidates": candidates}
+        enriched: Sequence[Candidate]
+        try:
+            enriched = await lastfm_enrichment.find(intent, _profile(state))
+        except Exception:
+            # Optional discovery must never block a valid Spotify-only preview.
+            enriched = []
+        return {"candidates": _merge_candidates(candidates, enriched)}
 
     def resolve_and_rank(state: RequestState) -> RequestState:
         """Resolve Spotify candidates and preserve transparent constraint scores."""
@@ -347,6 +366,27 @@ def _device_id(state: Mapping[str, object]) -> str | None:
 def _optional_text(value: object) -> str | None:
     """Narrow optional graph text for the public result model."""
     return value if isinstance(value, str) else None
+
+
+def _merge_candidates(
+    spotify_candidates: list[Candidate], external_candidates: Sequence[Candidate]
+) -> list[Candidate]:
+    """Deduplicate matching URI candidates while retaining Last.fm tag/provenance evidence."""
+    merged: dict[str, Candidate] = {}
+    for candidate in [*spotify_candidates, *external_candidates]:
+        uri = candidate.provenance.get("spotify_uri")
+        key = uri if uri is not None else f"{candidate.source.value}:{candidate.source_id}"
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = candidate
+            continue
+        merged[key] = existing.model_copy(
+            update={
+                "tags": list(dict.fromkeys([*existing.tags, *candidate.tags])),
+                "provenance": {**existing.provenance, **candidate.provenance},
+            }
+        )
+    return list(merged.values())
 
 
 async def _record_session(

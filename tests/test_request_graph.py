@@ -12,7 +12,11 @@ from tunetrail.domain.models import (
     ListeningIntent,
     ProfileSummary,
 )
-from tunetrail.domain.protocols import PersonalizationStore, SpotifyGateway
+from tunetrail.domain.protocols import (
+    CandidateSourceProvider,
+    PersonalizationStore,
+    SpotifyGateway,
+)
 from tunetrail.graph.models import ApprovalDecision, RequestOutcome
 from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
 
@@ -81,6 +85,28 @@ class FakePersonalizationStore:
         """Record only actions reached via the approved graph route."""
         assert len(score_json) == len(entry.spotify_uris)
         self.recorded.append(entry)
+
+
+class FakeLastfmEnrichment:
+    """Supply a resolved external suggestion without exposing an external API to graph tests."""
+
+    async def find(
+        self, parsed: ListeningIntent, profile: ProfileSummary | None
+    ) -> Sequence[Candidate]:
+        """Return one Last.fm-tagged candidate using the existing Spotify URI shape."""
+        assert parsed.moods == ["peaceful"]
+        assert profile is not None
+        return [
+            playable_candidate(
+                source="lastfm",
+                source_id="lastfm-track",
+                tags=["peaceful"],
+                provenance={
+                    "spotify_uri": "spotify:track:lastfmtrack",
+                    "lastfm_url": "https://last.fm/track",
+                },
+            )
+        ]
 
 
 def playable_candidate(**changes: object) -> Candidate:
@@ -194,3 +220,24 @@ async def test_graph_personalizes_vague_request_then_persists_only_after_approva
 
     assert completed.outcome is RequestOutcome.COMPLETED
     assert [entry.spotify_uris for entry in store.recorded] == [["spotify:track:track1"]]
+
+
+async def test_graph_merges_lastfm_enrichment_before_the_same_approval_interrupt() -> None:
+    """External suggestions are Spotify-resolved and previewed, never played before approval."""
+    spotify = FakeSpotify([playable_candidate()])
+    store = FakePersonalizationStore()
+    graph = NaturalLanguageRequestGraph(
+        parser=FakeParser(intent(moods=["peaceful"])),
+        spotify=cast(SpotifyGateway, spotify),
+        store=cast(PersonalizationStore, store),
+        lastfm_enrichment=cast(CandidateSourceProvider, FakeLastfmEnrichment()),
+    )
+
+    preview = await graph.start("Play something peaceful", device_id="device-1")
+
+    assert preview.outcome is RequestOutcome.PREVIEW_READY
+    assert preview.preview is not None
+    assert any(
+        item.track.spotify_uri == "spotify:track:lastfmtrack" for item in preview.preview.items
+    )
+    assert spotify.started == []

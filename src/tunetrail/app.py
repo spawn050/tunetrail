@@ -6,11 +6,14 @@ from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
 from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
+from tunetrail.lastfm.client import LastfmClient
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.paths import AppPaths
 from tunetrail.persistence.action_history import FileActionHistory
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
+from tunetrail.recommendation.lastfm import LastfmEnrichmentService
 from tunetrail.recommendation.profile import SpotifyProfileService
+from tunetrail.recommendation.resolver import SpotifyCandidateResolver
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.tui.app import SpotifyControlApp
 
@@ -35,6 +38,19 @@ def build_app() -> SpotifyControlApp:
     )
     spotify = SpotifyClient(authenticator, http_client, api_url=settings.spotify_api_url)
     personalization_store = SQLitePersonalizationStore(paths.database_file)
+    lastfm_enrichment = None
+    if settings.lastfm_api_key is not None and settings.lastfm_username is not None:
+        lastfm_enrichment = LastfmEnrichmentService(
+            lastfm=LastfmClient(
+                api_key=settings.lastfm_api_key,
+                username=settings.lastfm_username,
+                http_client=http_client,
+                api_url=settings.lastfm_api_url,
+            ),
+            resolver=SpotifyCandidateResolver(spotify),
+            store=personalization_store,
+            username=settings.lastfm_username,
+        )
     request_graph = None
     natural_language_error: str | None = None
     if settings.llm_model is not None or settings.openrouter_api_key is not None:
@@ -43,6 +59,7 @@ def build_app() -> SpotifyControlApp:
                 parser=OpenRouterLLMFactory(settings).create_intent_parser(),
                 spotify=spotify,
                 store=personalization_store,
+                lastfm_enrichment=lastfm_enrichment,
             )
         except LLMConfigurationError as error:
             natural_language_error = str(error)

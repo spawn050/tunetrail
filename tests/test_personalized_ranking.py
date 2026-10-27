@@ -137,6 +137,31 @@ def test_ranker_deduplicates_artist_and_album_when_diverse_choices_exist() -> No
     assert [track.spotify_uri for track in tracks] == ["spotify:track:one", "spotify:track:diverse"]
 
 
+def test_ranker_uses_lastfm_community_tags_for_requested_mood_explanations() -> None:
+    """Only explicit Last.fm tag evidence makes a mood/activity compatibility claim."""
+    parsed = intent(moods=["chill"], activities=["studying"])
+    tracks = rank_personalized_candidates(
+        [
+            spotify_candidate(
+                tags=["Chill", "study"],
+                provenance={
+                    "spotify_uri": "spotify:track:one",
+                    "lastfm_url": "https://last.fm/track",
+                },
+            )
+        ],
+        parsed,
+        profile=profile(),
+        feedback=[],
+        generated_uris=[],
+    )
+    preview = build_personalized_queue_preview(parsed, tracks)
+
+    assert tracks[0].score_breakdown["mood_activity_compatibility"] == 4.0
+    assert "Last.fm community tags match" in preview.items[0].explanation
+    assert "Last.fm similarity evidence resolved to Spotify" in preview.items[0].explanation
+
+
 def test_vague_request_requires_a_refreshed_profile_but_not_generic_search() -> None:
     """Vague mood requests cannot silently degrade to public Spotify playlist search."""
     with pytest.raises(PersonalizationClarification, match="Refresh"):

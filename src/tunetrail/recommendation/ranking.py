@@ -180,14 +180,13 @@ def _base_scores(
         feedback_score -= 3.0
     if FeedbackKind.TOO_DISTRACTING in feedback_kinds:
         feedback_score -= 4.0
+    mood_activity = _tag_compatibility(candidate.tags, intent)
     return {
         "request_fit": request_fit,
         "taste_affinity": taste_affinity,
         "familiarity": familiarity,
         "feedback": feedback_score,
-        # Spotify no longer supplies reliable audio-feature/mood data. Keep this visible rather
-        # than pretending a profile seed proves a mood match.
-        "mood_activity_compatibility": 0.0,
+        "mood_activity_compatibility": mood_activity,
         "recent_play_penalty": -4.0 if recently_seen else 0.0,
         "source_confidence": candidate.source_confidence,
     }
@@ -277,14 +276,19 @@ def _feedback_by_uri(feedback: Iterable[Feedback]) -> dict[str, set[FeedbackKind
 
 
 def _explanation(intent: ListeningIntent, track: ResolvedTrack) -> str:
-    """Explain the actual local score evidence without claiming unavailable mood metadata."""
+    """Explain actual local score and external-source evidence without claiming Spotify metadata."""
     parts = [
         name.replace("_", " ")
         for name, score in track.score_breakdown.items()
         if score > 0 and name not in {"source_confidence", "artist_diversity", "album_diversity"}
     ]
-    if intent.moods or intent.activities:
+    candidate = track.candidates[0]
+    if track.score_breakdown.get("mood_activity_compatibility", 0.0) > 0:
+        parts.append("Last.fm community tags match the requested mood/activity")
+    elif intent.moods or intent.activities:
         parts.append("Spotify-only profile match; mood/activity metadata is not inferred")
+    if "lastfm_url" in candidate.provenance or "lastfm_method" in candidate.provenance:
+        parts.append("Last.fm similarity evidence resolved to Spotify")
     if not parts:
         parts.append("valid Spotify result from your local profile seeds")
     return f"Selected for {', '.join(parts)}."
@@ -303,3 +307,15 @@ def _has_direct_constraint(intent: ListeningIntent) -> bool:
 def _normal(value: str) -> str:
     """Normalize local comparison values without altering visible Spotify metadata."""
     return " ".join(value.casefold().split())
+
+
+def _tag_compatibility(tags: Sequence[str], intent: ListeningIntent) -> float:
+    """Score normalized Last.fm community tags against explicit mood/activity request terms."""
+    requested = {_normal(term) for term in [*intent.moods, *intent.activities]}
+    normalized_tags = {_normal(tag) for tag in tags}
+    matches = {
+        term
+        for term in requested
+        if any(term == tag or term in tag or tag in term for tag in normalized_tags)
+    }
+    return float(len(matches) * 2)
