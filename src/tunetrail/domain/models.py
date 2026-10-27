@@ -77,7 +77,7 @@ class ListeningIntent(BaseModel):
     moods: list[NonEmptyText] = Field(default_factory=list)
     activities: list[NonEmptyText] = Field(default_factory=list)
     duration_minutes: int | None = Field(default=None, ge=1, le=480)
-    queue_size: int = Field(default=20, ge=1, le=100)
+    queue_size: int = Field(default=10, ge=1, le=100)
     familiarity: FamiliarityPreference = FamiliarityPreference.MIXED
     explicit_allowed: bool | None = None
     clarification_needed: bool = False
