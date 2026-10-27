@@ -1,0 +1,12 @@
+[
+  {"name":"exact recording", "external":{"title":"Harbor","artists":["North"],"duration_ms":200000}, "results":[{"id":"a","title":"Harbor","artist":"North","duration_ms":200000}], "correct_ids":["a"], "expected_id":"a"},
+  {"name":"punctuation variation", "external":{"title":"After Rain!","artists":["Blue Sky"],"duration_ms":180000}, "results":[{"id":"b","title":"After Rain","artist":"Blue Sky","duration_ms":181000}], "correct_ids":["b"], "expected_id":"b"},
+  {"name":"missing external duration", "external":{"title":"Night","artists":["星"]}, "results":[{"id":"c","title":"Night","artist":"星","duration_ms":220000}], "correct_ids":["c"], "expected_id":"c"},
+  {"name":"live edition", "external":{"title":"Harbor","artists":["North"],"duration_ms":200000}, "results":[{"id":"d","title":"Harbor Live","artist":"North","duration_ms":200000}], "correct_ids":[], "expected_id":null},
+  {"name":"tribute artist", "external":{"title":"Harbor","artists":["North"],"duration_ms":200000}, "results":[{"id":"e","title":"Harbor","artist":"North Tribute","duration_ms":200000}], "correct_ids":[], "expected_id":null},
+  {"name":"contradictory duration", "external":{"title":"Night","artists":["星"],"duration_ms":200000}, "results":[{"id":"f","title":"Night","artist":"星","duration_ms":240000}], "correct_ids":[], "expected_id":null},
+  {"name":"best result after wrong edition", "external":{"title":"Harbor","artists":["North"],"duration_ms":200000}, "results":[{"id":"g1","title":"Harbor Live","artist":"North","duration_ms":200000},{"id":"g2","title":"Harbor","artist":"North","duration_ms":200000}], "correct_ids":["g2"], "expected_id":"g2"},
+  {"name":"no search results", "external":{"title":"Missing","artists":["Unknown"]}, "results":[], "correct_ids":[], "expected_id":null},
+  {"name":"distinct unicode title", "external":{"title":"夜","artists":["星"]}, "results":[{"id":"h","title":"朝","artist":"星","duration_ms":200000}], "correct_ids":[], "expected_id":null},
+  {"name":"duplicate listing same uri", "external":{"title":"Day","artists":["East"],"duration_ms":210000}, "results":[{"id":"i","title":"Day","artist":"East","duration_ms":210000},{"id":"i","title":"Day","artist":"East","duration_ms":210000}], "correct_ids":["i"], "expected_id":"i"}
+]
