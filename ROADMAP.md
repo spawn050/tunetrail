@@ -683,6 +683,8 @@ release/edition handling and representative comparisons remain incomplete. Phase
 6's gate remains open. Name searches now fetch aliases for all artists in the
 bounded result page before deciding uniqueness; pages requiring more than five
 artist lookups are rejected instead of making a decision on partial evidence.
+Last.fm suggestions resolved to Spotify now retain the Spotify track's ISRC for
+subsequent MusicBrainz lookups, instead of losing it or trusting a different source.
 
 A five-case hand-authored synthetic era comparison measured safe-eligibility
 agreement of 4/5 for Spotify-only and 5/5 with cached enrichment, with accepted

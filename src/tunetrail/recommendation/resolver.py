@@ -43,6 +43,9 @@ class SpotifyCandidateResolver:
                 "artists": best.artists,
                 "album": best.album,
                 "duration_ms": best.duration_ms,
+                # MusicBrainz lookup must use the identifier of the Spotify result,
+                # not an unverified external suggestion's identifier.
+                "isrc": best.isrc,
                 "year": best.year,
                 "explicit": best.explicit,
                 "source_confidence": round(candidate.source_confidence * confidence, 3),

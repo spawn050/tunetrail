@@ -47,6 +47,7 @@ async def test_resolver_preserves_lastfm_evidence_after_high_confidence_spotify_
         title="Love Story",
         artists=["Taylor Swift"],
         duration_ms=235_001,
+        isrc="USABC1234567",
         explicit=False,
         provenance={"spotify_uri": "spotify:track:spotifytrack"},
     )
@@ -58,6 +59,7 @@ async def test_resolver_preserves_lastfm_evidence_after_high_confidence_spotify_
     assert resolved is not None
     assert resolved.source is CandidateSource.LASTFM
     assert resolved.source_id == "spotify-track"
+    assert resolved.isrc == "USABC1234567"
     assert resolved.provenance["lastfm_url"] == "https://last.fm/track"
     assert resolved.provenance["spotify_uri"] == "spotify:track:spotifytrack"
     assert resolved.provenance["spotify_match_confidence"] == "1.00"
