@@ -365,21 +365,21 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** make vague requests more personal than generic keyword search without external services.
 
-- [ ] Add SQLite schema and migrations for profile summaries, feedback, sessions, action history, and cache metadata.
-- [ ] Implement repositories with transaction boundaries and migration tests.
-- [ ] Request and ingest Spotify top tracks/artists for short, medium, and long time windows.
-- [ ] Request and ingest recently played tracks for repetition avoidance.
-- [ ] Add opt-in selection of user-owned/collaborative playlists as taste signals.
-- [ ] Build a compact local profile summary from Spotify signals; do not create a broad permanent catalog copy.
-- [ ] Implement feedback actions: like, dislike, more like this, less like this, too familiar, and too distracting.
-- [ ] Add feedback-derived local preference weights with clear precedence over inferred signals.
-- [ ] Implement candidate retrieval from profile seeds and constrained Spotify catalog search.
-- [ ] Implement hard filters for artist, year, explicit-content, availability, and valid URI resolution.
-- [ ] Implement deterministic score components for taste affinity, familiarity/discovery, recency, diversity, and request fit.
-- [ ] Implement artist/album deduplication, recently-played penalties, and queue-duration fitting.
-- [ ] Implement source/score explanations for each final track.
-- [ ] Add evaluation fixtures for “peaceful study,” familiar versus discovery, duration, explicit-content, and repetition behavior.
-- [ ] Add a local profile reset/export command.
+- [x] Add SQLite schema and migrations for profile summaries, feedback, sessions, action history, and cache metadata.
+- [x] Implement repositories with transaction boundaries and migration tests.
+- [x] Request and ingest Spotify top tracks/artists for short, medium, and long time windows.
+- [x] Request and ingest recently played tracks for repetition avoidance.
+- [x] Add opt-in selection of user-owned/collaborative playlists as taste signals.
+- [x] Build a compact local profile summary from Spotify signals; do not create a broad permanent catalog copy.
+- [x] Implement feedback actions: like, dislike, more like this, less like this, too familiar, and too distracting.
+- [x] Add feedback-derived local preference weights with clear precedence over inferred signals.
+- [x] Implement candidate retrieval from profile seeds and constrained Spotify catalog search.
+- [x] Implement hard filters for artist, year, explicit-content, availability, and valid URI resolution.
+- [x] Implement deterministic score components for taste affinity, familiarity/discovery, recency, diversity, and request fit.
+- [x] Implement artist/album deduplication, recently-played penalties, and queue-duration fitting.
+- [x] Implement source/score explanations for each final track.
+- [x] Add evaluation fixtures for “peaceful study,” familiar versus discovery, duration, explicit-content, and repetition behavior.
+- [x] Add a local profile reset/export command.
 
 **Phase gate:** vague requests produce a personalized, diverse, explainable queue using Spotify-only signals and pass the fixed personalization evaluation suite.
 
@@ -568,6 +568,30 @@ privacy-preserving digests rather than raw request text. The Phase 2
 `action-history.json` remains readable; newly confirmed actions use the SQLite
 session tables, with no automatic historical import unless preserving existing
 local history becomes necessary.
+
+Implemented the private SQLite store with transactional migrations, compact
+profile/feedback/playlist/session/cache tables, private profile export, and local
+profile reset. Profile refresh combines Spotify top artists/tracks across short,
+medium, and long windows with recently played tracks and explicitly selected
+owned/collaborative playlist references. Full Spotify endpoint and playlist
+payloads are used transiently and are not persisted.
+
+Natural-language graph requests now load the compact profile, feedback, and
+URI-only generated-session history before retrieving Spotify candidates. Vague
+requests use constrained searches derived from profile artist seeds; they do not
+fall back to public playlist search. Deterministic ranking enforces hard
+constraints and scores request fit, taste affinity, familiarity/discovery,
+feedback, repetition, source confidence, and diversity. Spotify no longer offers
+reliable current mood/audio-feature data, so the unavailable mood/activity score
+is explicitly zero and explanations state that limitation rather than inventing
+audio analysis.
+
+The TUI offers profile refresh, playlist-signal opt-in, reset/export, and all six
+feedback actions for the current track. All natural-language and explicit catalog
+queue mutations still require approval; only approved actions create URI-only
+SQLite sessions. Fixed local evaluation fixtures cover peaceful-study profile
+behavior, familiar/discovery selection, duration, explicit-content, and
+repetition constraints.
 
 ### Phase 5
 

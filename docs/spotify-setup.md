@@ -42,10 +42,13 @@ TuneTrail currently requests only:
 - `user-read-currently-playing` — display the current track;
 - `user-modify-playback-state` — control playback and add a track to the queue.
 - `playlist-read-private` and `playlist-read-collaborative` — preview tracks from a playlist the user can access.
+- `user-top-read` — derive a compact local taste profile from top artists and tracks.
+- `user-read-recently-played` — apply local repetition avoidance.
 
-If you previously authorized TuneTrail before the playlist scopes were added,
-use **Log out** and sign in again to grant the additional scope. TuneTrail does
-not retain playlist contents after a preview or player action.
+If you previously authorized TuneTrail before any newly listed scope was added,
+use **Log out** and sign in again to grant it. TuneTrail does not retain playlist
+contents after profile refresh; it stores only selected playlist references and
+bounded derived taste signals.
 
 On success, Spotify tokens are stored at `~/.config/tunetrail/auth.json` with
 owner-only (`0600`) permissions. Use TuneTrail's logout action to remove them.

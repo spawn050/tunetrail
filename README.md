@@ -17,8 +17,8 @@ redirect URI and client ID as described in [Spotify setup](docs/spotify-setup.md
 
 ## Natural-language requests
 
-Phase 3 supports clear direct requests, while retaining the explicit catalog
-commands below. Add these optional settings to your untracked `.env` to enable
+TuneTrail supports direct and Spotify-only personalized requests while retaining
+the explicit catalog commands below. Add these optional settings to your untracked `.env` to enable
 natural-language parsing through OpenRouter:
 
 ```text
@@ -26,19 +26,26 @@ TUNETRAIL_OPENROUTER_API_KEY=...
 TUNETRAIL_LLM_MODEL=openai/gpt-4.1-mini
 ```
 
-For example: `Play Taylor Swift from 2008 to 2012` or `Append Bad Romance by
-Lady Gaga`. TuneTrail shows the parsed intent and queue preview, then requires
+For example: `Play Taylor Swift from 2008 to 2012`, `Append Bad Romance by
+Lady Gaga`, or `Play something peaceful for studying for 45 minutes`. TuneTrail shows the parsed intent and queue preview, then requires
 **Confirm** before Spotify playback changes. **Cancel**, **Edit request**, and
 **Regenerate** do not mutate Spotify.
 
-Vague mood/activity, duration, familiarity, and discovery requests are deferred
-to Phase 4. The LLM parses intent only; Spotify search, filtering, ranking, URI
-resolution, and player calls remain deterministic application code.
+Personalized queues use local Spotify top artists/tracks, recently played tracks,
+explicit feedback, and only playlists that the user manually selects as taste
+signals. Use **Refresh taste profile** after signing in, then optionally load and
+toggle owned/collaborative playlists. **Like current**, **Dislike current**, and
+the other feedback controls affect later rankings. Profile export and reset are
+local-only; they never affect Spotify credentials or playback.
+
+The LLM parses intent only; Spotify retrieval, filtering, ranking, URI resolution,
+and player calls remain deterministic application code. Spotify does not provide
+reliable current mood/audio-feature data for this flow, so mood/activity requests
+are personalized from local taste signals rather than treated as claimed audio analysis.
 
 ## Catalog queue workflow
 
-TuneTrail's catalog commands are explicit and keyboard-first; natural-language
-requests are planned for a later phase.
+TuneTrail's catalog commands remain explicit and keyboard-first.
 
 ```text
 search track <query>
