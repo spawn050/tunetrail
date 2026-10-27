@@ -497,7 +497,77 @@ Local verification passes with `uv run ruff format --check .`, `uv run ruff chec
 
 ### Phase 4
 
-_No implementation notes yet._
+#### SQLite persistence design
+
+Phase 4 uses the existing XDG-aware `AppPaths.database_file` location
+(`~/.local/share/tunetrail/tunetrail.sqlite3` by default) for application-owned
+personalization data. It adds a small migration runner with a
+`schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)` table.
+Each migration runs in a transaction and records its version only after the schema
+change succeeds.
+
+The initial Phase 4 schema is deliberately compact:
+
+```text
+profile_summary
+  id INTEGER PRIMARY KEY CHECK (id = 1)
+  favorite_artists JSON text array
+  favorite_track_uris JSON text array
+  recent_track_uris JSON text array
+  summary text | null
+  updated_at timestamp
+
+feedback
+  id INTEGER PRIMARY KEY
+  spotify_uri text
+  kind like | dislike | more_like_this | less_like_this | too_familiar | too_distracting
+  note text | null
+  created_at timestamp
+
+playlist_signal
+  spotify_playlist_id PRIMARY KEY
+  display_name text
+  owner_id text | null
+  selected_at timestamp
+  last_ingested_at timestamp | null
+
+listening_session
+  id INTEGER PRIMARY KEY
+  request_hash text | null
+  action text
+  device_id text | null
+  outcome succeeded | failed
+  created_at timestamp
+
+session_track
+  session_id REFERENCES listening_session ON DELETE CASCADE
+  position integer
+  spotify_uri text
+  score_json text | null
+  PRIMARY KEY (session_id, position)
+  UNIQUE (session_id, spotify_uri)
+
+cache_metadata
+  cache_key PRIMARY KEY
+  refreshed_at timestamp
+  expires_at timestamp
+```
+
+`feedback(spotify_uri, created_at DESC)` and `session_track(spotify_uri)` are
+indexed for preference lookup and repetition penalties. Profile-refresh writes
+the summary and cache metadata in one transaction; a confirmed or failed Spotify
+action writes its session and all session tracks atomically. Feedback writes are
+short append-only transactions. Profile reset removes only TuneTrail-owned rows
+in one transaction and does not log the user out.
+
+The database must not store OAuth tokens, API keys, raw LLM requests, raw Spotify
+responses, permanent playlist copies, or a broad catalog export. Playlist opt-in
+stores only a playlist reference; profile refresh derives bounded signals and
+discards full playlist contents. Session request hashes are optional,
+privacy-preserving digests rather than raw request text. The Phase 2
+`action-history.json` remains readable; newly confirmed actions use the SQLite
+session tables, with no automatic historical import unless preserving existing
+local history becomes necessary.
 
 ### Phase 5
 
