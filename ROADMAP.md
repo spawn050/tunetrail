@@ -685,6 +685,10 @@ release/edition handling and representative comparisons remain incomplete. Phase
 6's gate remains open. Name searches now fetch aliases for all artists in the
 bounded result page before deciding uniqueness; pages requiring more than five
 artist lookups are rejected instead of making a decision on partial evidence.
+Name searches also reject responses without a trustworthy result count or with
+more results than the bounded page contains; a partial page cannot establish a
+unique recording. This may reduce match coverage, and the ISRC endpoint's result
+completeness still needs independent verification against the live API contract.
 Last.fm suggestions resolved to Spotify now retain the Spotify track's ISRC for
 subsequent MusicBrainz lookups, instead of losing it or trusting a different source.
 
@@ -697,6 +701,11 @@ not establish live accuracy, release-list availability, or representative impact
 In particular, responses lacking an explicit release count cannot improve a year
 under the current conservative rule. Phase 6's gate remains open pending broader
 independent and preferably live comparisons. No live acceptance was performed.
+
+The latest offline Phase 6 pass added mocked incomplete-search regression cases;
+formatting, Ruff, Pyright, and 144 tests passed. This does not resolve the policy
+review, establish live search response shape or ISRC completeness, or complete the
+remaining unchecked Phase 6 work and evidence gate.
 
 ### Phase 7
 
