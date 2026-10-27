@@ -4,10 +4,13 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
+import pytest
+
 from tests.factories import candidate, feedback, intent
 from tunetrail.domain.models import (
     ActionHistoryEntry,
     Candidate,
+    CandidateSource,
     Feedback,
     ListeningIntent,
     ProfileSummary,
@@ -19,6 +22,7 @@ from tunetrail.domain.protocols import (
 )
 from tunetrail.graph.models import ApprovalDecision, RequestOutcome
 from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
+from tunetrail.recommendation.resolver import SpotifyCandidateResolver
 
 
 class FakeParser:
@@ -272,3 +276,105 @@ async def test_graph_merges_lastfm_enrichment_before_the_same_approval_interrupt
         item.track.spotify_uri == "spotify:track:lastfmtrack" for item in preview.preview.items
     )
     assert spotify.started == []
+
+
+@pytest.mark.parametrize(
+    ("parsed", "favorite_artist"),
+    [
+        (
+            intent(moods=["peaceful"], activities=["studying"], explicit_allowed=False),
+            "Taylor Swift",
+        ),
+        (intent(familiarity="discovery", explicit_allowed=False), "Another Artist"),
+        (intent(familiarity="familiar", explicit_allowed=False), "Taylor Swift"),
+    ],
+)
+async def test_comparative_graph_previews_keep_filters_and_approval(
+    parsed: ListeningIntent, favorite_artist: str
+) -> None:
+    """Compare real graph merge/rank paths with resolved, duplicate and invalid suggestions."""
+
+    class Store(FakePersonalizationStore):
+        async def get(self) -> ProfileSummary:
+            return ProfileSummary(favorite_artists=[favorite_artist], updated_at=datetime.now(UTC))
+
+    class Enrichment:
+        async def find(
+            self, parsed: ListeningIntent, profile: ProfileSummary | None
+        ) -> Sequence[Candidate]:
+            suggestions = [
+                (playable_candidate(), playable_candidate()),
+                (
+                    playable_candidate(title="New Song", artists=["New Artist"]),
+                    playable_candidate(
+                        source_id="new",
+                        title="New Song",
+                        artists=["New Artist"],
+                        provenance={"spotify_uri": "spotify:track:new"},
+                    ),
+                ),
+                (
+                    playable_candidate(title="Explicit", artists=["Third Artist"]),
+                    playable_candidate(
+                        source_id="explicit",
+                        title="Explicit",
+                        artists=["Third Artist"],
+                        explicit=True,
+                        provenance={"spotify_uri": "spotify:track:explicit"},
+                    ),
+                ),
+                (
+                    playable_candidate(title="Edition", artists=["Fourth Artist"]),
+                    playable_candidate(
+                        source_id="wrong",
+                        title="Edition Live",
+                        artists=["Fourth Artist"],
+                        provenance={"spotify_uri": "spotify:track:wrong"},
+                    ),
+                ),
+                (
+                    playable_candidate(title="Incomplete", artists=["Fifth Artist"]),
+                    playable_candidate(
+                        source_id="incomplete",
+                        title="Incomplete",
+                        artists=["Fifth Artist"],
+                        duration_ms=None,
+                        provenance={"spotify_uri": "spotify:track:incomplete"},
+                    ),
+                ),
+            ]
+            resolved: list[Candidate] = []
+            for external, result in suggestions:
+                external = external.model_copy(
+                    update={"source": CandidateSource.LASTFM, "tags": ["peaceful"]}
+                )
+                resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify([result])))
+                match = await resolver.resolve(external)
+                if match is not None:
+                    resolved.append(match)
+            return resolved
+
+    async def preview(enriched: bool) -> tuple[list[str], set[str]]:
+        spotify = FakeSpotify([playable_candidate()])
+        store = Store()
+        graph = NaturalLanguageRequestGraph(
+            parser=FakeParser(parsed),
+            spotify=cast(SpotifyGateway, spotify),
+            store=cast(PersonalizationStore, store),
+            lastfm_enrichment=cast(CandidateSourceProvider, Enrichment()) if enriched else None,
+        )
+        result = await graph.start("Compare preview", device_id="device-1")
+        assert result.outcome is RequestOutcome.PREVIEW_READY and result.preview is not None
+        uris = [item.track.spotify_uri for item in result.preview.items]
+        artists = {artist for item in result.preview.items for artist in item.track.artists}
+        assert not spotify.started and not spotify.appended and not store.recorded
+        assert (await graph.resume(ApprovalDecision.CANCEL)).outcome is RequestOutcome.CANCELLED
+        assert not spotify.started and not spotify.appended and not store.recorded
+        return uris, artists
+
+    baseline_uris, baseline_artists = await preview(False)
+    enriched_uris, enriched_artists = await preview(True)
+    assert baseline_uris == ["spotify:track:track1"]
+    assert set(enriched_uris) == {"spotify:track:track1", "spotify:track:new"}
+    assert len(enriched_uris) == 2
+    assert len(baseline_artists) == 1 and len(enriched_artists) == 2
