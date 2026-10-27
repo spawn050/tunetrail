@@ -22,7 +22,7 @@ class Settings(BaseModel):
     spotify_api_url: str = "https://api.spotify.com/v1"
     spotify_scopes: str = (
         "user-read-private user-read-playback-state user-read-currently-playing "
-        "user-modify-playback-state"
+        "user-modify-playback-state playlist-read-private playlist-read-collaborative"
     )
     llm_provider: Literal["openrouter", "anthropic", "openai"] = "openrouter"
     llm_model: str | None = None

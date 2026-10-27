@@ -6,6 +6,7 @@ from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
 from tunetrail.paths import AppPaths
+from tunetrail.persistence.action_history import FileActionHistory
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.tui.app import SpotifyControlApp
 
@@ -33,6 +34,7 @@ def build_app() -> SpotifyControlApp:
         authenticator=authenticator,
         spotify=spotify,
         http_client=http_client,
+        action_history=FileActionHistory(paths.action_history_file),
     )
 
 
