@@ -2,7 +2,7 @@
 
 ## Vision
 
-TuneTrail is a personal, terminal-first Spotify controller that turns natural-language requests into personalized, reviewable music queues.
+TuneTrail is a local, personal music discovery app that turns chat and explicit feedback into personalized, reviewable Spotify queues. A React browser interface is planned as a replacement for the current terminal interface; the app is not intended for internet deployment.
 
 Examples:
 
@@ -12,6 +12,12 @@ Examples:
 - “More like this, but calmer.”
 
 Spotify remains the catalog and playback authority. TuneTrail interprets intent, gathers candidates, ranks them against the user’s taste, and asks for approval before changing playback.
+
+**Redesign status:** Phases 4R–4V below are the current plan and supersede the
+original architecture and personalization strategy described before the delivery
+phases. Those earlier sections and completed phase notes describe the original
+design or existing implementation, not the redesigned behavior. No redesign or
+provider-policy clearance is implied by this plan.
 
 ## Product Boundaries
 
@@ -383,32 +389,72 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Phase gate:** vague requests produce a personalized, diverse, explainable queue using Spotify-only signals and pass the fixed personalization evaluation suite.
 
-### Phase 4R — Independent personalization redesign
+### Phase 4R — Independent preference foundation
 
-**Goal:** redesign the taste profile around direct user preferences and optional Last.fm history, while keeping Spotify as the catalog and playback authority.
+**Goal:** replace Spotify-derived taste signals with an explicit, locally stored profile.
 
-This is a proposed redesign of existing Phase 4–6 behavior, not a claim that those
-flows already satisfy the new boundary. Offline mapping, design, and mocked
-implementation may proceed while the Phase 5 and 6 evidence gates remain open;
-this does not close or override those gates. Live testing remains a separate owner
-decision and authorization, and playback or queue mutations require explicit
-approval.
+Phases 4R–4V redesign existing behavior; they do not describe the current runtime.
+Complete one phase per implementation pass in small, testable commits. Offline work
+may proceed while the Phase 5 and 6 evidence gates remain open. Live read-only tests
+require separate owner authorization, and playback acceptance and every playback or
+queue mutation require explicit approval. These phase gates are not policy clearance.
 
-- [ ] Map existing Spotify profile inputs, external-source requests, persistence, feedback, and deletion paths; document where Spotify-derived data crosses the proposed boundary.
-- [ ] Define profile inputs, provenance, retention, reset/deletion, and migration behavior for direct preferences, explicit feedback, and optional Last.fm history.
-- [ ] Decide with the owner how to handle any existing Spotify-derived local profile data; do not delete it without approval.
-- [ ] Replace Spotify likes, top/recent listening, and playback observation as taste-profile inputs with the approved independent profile design.
-- [ ] Keep Last.fm opt-in and user-configured; use scrobbles as listening evidence rather than proof of preference, with explicit feedback weighted more strongly.
-- [ ] Prevent Spotify-derived identifiers and metadata from entering the taste profile or outbound external-source discovery requests; never send Spotify IDs to ReccoBeats, including for translation.
-- [ ] Preserve conservative resolution to playable Spotify tracks, reviewable explanations, and the mandatory approval boundary for playback and queue mutations.
-- [ ] Add bounded storage, provenance, reset/deletion controls, and documented Last.fm attribution and other applicable API requirements.
-- [ ] Test the redesigned flows offline with synthetic or mocked data, including source failures, ambiguous matches, data boundaries, cancellation, and approval.
-- [ ] Review current provider terms and unresolved policy questions; document findings without claiming clearance, and obtain separate authorization before any live read-only testing or playback acceptance.
+- [ ] Map Spotify profile inputs, external requests, persistence, feedback, caches, exports, and deletion paths; identify boundary crossings.
+- [ ] Define independent artist and recording identities, source provenance, bounded retention, profile reset, and migration behavior.
+- [ ] Replace Spotify likes, top/recent listening, selected playlists, and playback observation as profile inputs with direct preferences and explicit feedback.
+- [ ] Classify chat as current request or lasting preference with validated LLM output; immediately save clear lasting preferences without confirmation or undo, and clarify ambiguity. Do not persist raw chat.
+- [ ] Store tile and survey likes/dislikes against independent identities; skip and not-familiar are not dislikes. Approvals and playback requests are not evidence of listening.
+- [ ] Check whether legacy local data exists; preserve it and isolate Spotify-derived records from the new profile. Ask the owner before deleting or replacing any existing data.
+- [ ] Provide inspectable preferences and a full profile reset, with synthetic and mocked tests of classification, persistence, reset, and data boundaries.
 
-**Phase gate:** the redesigned profile and source boundaries are implemented and
-verified offline, with existing local-data handling decided and unresolved policy
-questions documented. This gate does not establish policy clearance, authorize live
-tests, or satisfy the Phase 5 and 6 evidence gates.
+**Phase gate:** an inspectable local profile uses explicit inputs without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion.
+
+### Phase 4S — Candidate discovery and ReccoBeats enrichment
+
+**Goal:** generate independently identified candidates and enrich them with available ReccoBeats audio-feature estimates.
+
+- [ ] Use independently supplied seeds and MusicBrainz identity/metadata to generate bounded candidates; evaluate practical expansion and ask for more seeds or return fewer results when coverage is insufficient.
+- [ ] Confirm the documented ReccoBeats lookup and feature contract, including whether reliable independent-input-to-ReccoBeats-ID lookup is possible, before implementing an adapter; do not assume undocumented parameters.
+- [ ] Never send Spotify IDs, URIs, or Spotify-derived metadata to ReccoBeats or MusicBrainz, including during ID translation; conservatively reject ambiguous matches.
+- [ ] Implement optional, failure-tolerant ReccoBeats feature enrichment with bounded caching, timeouts, rate-limit handling, and provenance. Treat missing features as unknown and preserve source-specific scales.
+- [ ] Document that ReccoBeats says its foundational track metadata is Spotify-derived; using it is a deliberate departure from a fully Spotify-independent provenance goal, not policy clearance.
+- [ ] Test candidate generation, matching, source failures, feature availability, and outbound boundaries offline with synthetic or mocked data.
+
+**Phase gate:** mocked tests demonstrate bounded candidate generation and feature enrichment without sending Spotify-derived data to external sources; unresolved contract and policy findings are recorded honestly.
+
+### Phase 4T — TuneTrail ranking and Spotify resolution
+
+**Goal:** rank independent candidates and produce reviewable Spotify playback previews.
+
+- [ ] Rank deterministically using explicit preferences, request constraints, available source-labelled audio features, independent metadata, diversity, and bounded repetition avoidance.
+- [ ] Explain actual ranking signals; avoid presenting recommendations, approvals, or playback requests as listens. Report unsupported hard constraints and treat missing features as unknown.
+- [ ] Resolve ranked candidates conservatively to playable Spotify versions, display match details, and handle ambiguity or insufficient results transparently.
+- [ ] Preserve explicit approval before all playback and queue mutations; test cancellation, source outages, uncertain matches, and approval with mocked services.
+
+**Phase gate:** synthetic and mocked end-to-end requests yield explainable previews without playback or queue mutations before approval.
+
+### Phase 4U — Local backend API
+
+**Goal:** expose the redesigned Python services to a browser running on the same machine.
+
+- [ ] Provide local API operations for chat, search, preferences, candidate discovery, preview, and approval; bind to localhost by default and do not deploy publicly.
+- [ ] Keep credentials and Spotify tokens server-side; validate inputs and protect mutation endpoints against unintended cross-origin requests.
+- [ ] Make clear that chat sent to a hosted LLM leaves the machine; avoid transmitting credentials or unnecessary profile data.
+- [ ] Add mocked API tests for normal flows, failures, validation, and the approval boundary.
+
+**Phase gate:** offline API tests cover the main flows and preserve the playback approval boundary.
+
+### Phase 4V — React interface and surveys
+
+**Goal:** provide a local browser interface for chat, discovery, feedback, and approved playback.
+
+- [ ] Add chat, artist/track search, clickable lasting like/dislike tiles, and clearly labelled suggested music.
+- [ ] Add optional, initially deterministic surveys with like, dislike, not familiar, and skip; do not invent catalog entries.
+- [ ] Show immediate profile updates, profile contents and reset controls, and a reviewable Spotify playback preview with explicit play/queue approval.
+- [ ] Retain the existing TUI during the transition; decide whether to retire it after the browser interface covers the required flows.
+- [ ] Test the local interface and complete mocked request-to-approval flow.
+
+**Phase gate:** the local React interface supports the mocked flow from preferences to an approved playback request.
 
 ### Phase 5 — Last.fm enrichment
 
@@ -449,6 +495,10 @@ tests, or satisfy the Phase 5 and 6 evidence gates.
 
 ### Phase 7 — ReccoBeats evaluation
 
+The original evaluation plan below remains an open evidence gate. The owner has
+chosen to pursue feature enrichment provisionally in Phase 4S rather than wait for
+this gate; that decision does not close it, establish policy clearance, or authorize
+live calls. Recommendation-endpoint integration remains deferred.
 
 **Goal:** make a measured decision on using ReccoBeats as an optional recommendation signal.
 
@@ -475,7 +525,7 @@ tests, or satisfy the Phase 5 and 6 evidence gates.
 - [ ] Add privacy-preserving local metrics storage and reset/export controls.
 - [ ] Create a fixed regression evaluation suite of representative requests and expected constraints.
 - [ ] Add resilience tests for no device, expired/revoked token, missing scope, Spotify `429`, optional-source outage, invalid LLM output, and network timeout.
-- [ ] Add TUI recovery actions for every expected failure state.
+- [ ] Add recovery actions for every expected failure state in the active interface.
 - [ ] Add source enable/disable controls and a clear source-status view.
 - [ ] Add credential cleanup and complete-profile deletion commands.
 - [ ] Write setup, Spotify developer-app, configuration, privacy, troubleshooting, and contribution documentation.
@@ -488,50 +538,34 @@ tests, or satisfy the Phase 5 and 6 evidence gates.
 
 Use this section for short, durable notes that help later agents understand completed work or intentional deviations.
 
-### Proposed personalization redesign
+### Personalization redesign decisions
 
-The project owner wants listening outside TuneTrail to inform personalization, but
-would prefer not to build taste profiles directly from Spotify likes, top tracks,
-recent plays, or playback observation. The proposed direction is a locally stored
-taste profile built from explicit user preferences and feedback, with optional
-Last.fm scrobbles as the leading candidate for passive listening history. A user's
-separate Spotify-to-Last.fm connection can capture listening outside TuneTrail;
-TuneTrail would read that history from Last.fm rather than scrobbling Spotify
-activity itself. Scrobbles indicate listening, not necessarily preference, so
-explicit feedback should carry greater weight. TuneTrail-only recommendations and
-approvals must not be represented as proof that a track was heard.
+The owner has chosen a local React browser interface and an explicit-feedback taste
+profile. Clear lasting preferences inferred from chat are saved immediately, without
+confirmation or undo; tile and survey likes/dislikes are lasting feedback. Chat can
+also express temporary requests. Last.fm and passive history are deferred, even
+though this means listening outside TuneTrail will not be captured. AI-based audio
+analysis is not planned.
 
-Spotify remains the catalog and playback authority: resolve independently sourced
-candidates to playable Spotify tracks, show a reviewable preview, and require
-explicit approval before playback or queue mutations. The intended boundary keeps
-Spotify-derived identifiers and metadata out of the taste profile and outbound
-external-source discovery requests. In particular, never send Spotify IDs to
-ReccoBeats, including during any future ID translation; translating an ID does not
-by itself make the underlying listening signal independent. ReccoBeats remains a
-provisional no-go, and its Spotify-derived metadata also requires review.
+MusicBrainz is the leading identity and metadata source, not a complete recommender.
+ReccoBeats is the selected provisional audio-feature source for TuneTrail's own
+ranker; its recommendation endpoint is deferred. Never send Spotify IDs or
+Spotify-derived metadata to external providers, including during translation.
+ReccoBeats states that its core metadata is aggregated from Spotify: the owner has
+accepted this provenance tradeoff for a hobby project, but it remains an unresolved
+policy question, not permission or clearance. Review the feature contract and
+provider terms proportionately and use mocked data until live testing is separately
+authorized. `docs/source-policy-review.md` records the earlier provisional no-go and
+its rationale; the owner has since chosen to proceed provisionally, not to close
+the Phase 7 evidence gate.
 
-This is a proposed redesign, not a description of current behavior or a policy
-clearance. Existing personalization uses Spotify top/recent signals and may use
-Spotify-derived artist names for Last.fm discovery or candidate metadata for
-MusicBrainz. Before changing these flows, review the profile, retrieval, matching,
-caching, feedback, TUI, and deletion paths; decide with the owner how to handle any
-existing Spotify-derived local data. Preserve provenance, bounded local storage,
-reset/deletion controls, and conservative matching. Do not delete existing data
-without approval.
-
-The owner prefers a proportionate approach for a private, non-commercial portfolio
-project: use documented APIs and rate limits, keep Last.fm optional and
-user-configured, and continue development with synthetic or mocked data without
-blocking all work on legal review. Published Last.fm API terms include conditions
-on non-commercial use, attribution, caching, data limits, privacy, and deletion;
-the relationship between its public-read endpoint documentation and the terms'
-authentication language needs clarification. Spotify's treatment of Last.fm
-scrobbles originating from Spotify and used to personalize Spotify playback is
-also unresolved. Personal use or user consent does not establish permission.
-Review current terms and seek clarification as appropriate; real-account testing
-requires a separate owner decision and authorization, with playback approval
-separate from read-only testing. See `docs/source-policy-review.md` for the earlier
-preliminary review. Phase 5 and 6 evidence gates remain open.
+Existing personalization still uses Spotify listening signals and may send
+Spotify-derived metadata to external providers. The redesign must map and replace
+those paths, preserve any existing data until the owner decides otherwise, and keep
+Spotify resolution and every playback/queue mutation behind the explicit preview
+and approval boundary. Phase 5 and 6 evidence gates remain open. Last.fm's API
+conditions and Spotify's treatment of Spotify-origin scrobbles remain unresolved if
+passive history is revisited later.
 
 ### Phase 0
 
@@ -792,14 +826,15 @@ remaining unchecked Phase 6 work and evidence gate. No catalog requests were mad
 
 ### Phase 7
 
-Preparatory documentation and a provisional no-go are recorded in
+Preparatory documentation and the earlier provisional no-go are recorded in
 `docs/source-policy-review.md`. The current Spotify policy raises unresolved risks
 for Spotify-derived profiling, benchmarking, and transfer of candidate metadata
 to external services; this also affects existing Phase 4–6 flows, not just
 ReccoBeats. The ReccoBeats documentation identifies Spotify-derived base metadata
 and unpublished rate limits, while its rendered recommendation API reference does
 not provide a complete schema. No runtime adapter, live calls, policy clearance,
-or final evidence-based go/no-go has been completed. Phase 7's gate remains open.
+or final evidence-based go/no-go has been completed. The owner subsequently chose
+provisional feature enrichment in Phase 4S; Phase 7's evidence gate remains open.
 
 ### Phase 8
 
@@ -863,8 +898,8 @@ tests/
 
 ## Near-Term Priorities
 
-1. Build the Spotify PKCE/control foundation.
-2. Make the non-AI TUI useful and safe.
-3. Add LangGraph with structured intent parsing and confirmation.
-4. Add Spotify-only personalization before adding any external source.
-5. Introduce Last.fm, then MusicBrainz; evaluate ReccoBeats separately.
+1. Complete Phase 4R's independent preference foundation.
+2. Follow with Phase 4S candidate discovery and provisional ReccoBeats feature enrichment.
+3. Implement Phase 4T ranking and conservative Spotify resolution.
+4. Build the local backend API and React interface in Phases 4U and 4V.
+5. Revisit deferred sources and open evidence gates separately; obtain authorization before live tests.
