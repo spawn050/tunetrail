@@ -261,4 +261,16 @@ class ProfileSummary(BaseModel):
     updated_at: AwareDatetime
 
 
+class PlaylistSignal(BaseModel):
+    """A user-approved Spotify playlist reference used as a taste signal."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    spotify_playlist_id: NonEmptyText
+    display_name: NonEmptyText
+    owner_id: str | None = None
+    selected_at: AwareDatetime
+    last_ingested_at: AwareDatetime | None = None
+
+
 Timestamp = datetime

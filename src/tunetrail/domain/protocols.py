@@ -13,6 +13,7 @@ from tunetrail.domain.models import (
     Feedback,
     ListeningIntent,
     PlaybackState,
+    PlaylistSignal,
     ProfileSummary,
     ResolvedTrack,
 )
@@ -89,6 +90,20 @@ class FeedbackRepository(Protocol):
     async def add(self, feedback: Feedback) -> None: ...
 
     async def recent(self, *, limit: int = 100) -> Sequence[Feedback]: ...
+
+
+class PlaylistSignalRepository(Protocol):
+    """Persist the user's explicit playlist-ingestion choices only."""
+
+    async def playlist_signals(self) -> Sequence[PlaylistSignal]: ...
+
+    async def replace(self, signals: Sequence[PlaylistSignal]) -> None: ...
+
+
+class SessionRepository(Protocol):
+    """Store generated-session metadata for local repetition avoidance."""
+
+    async def recent_track_uris(self, *, limit: int = 100) -> Sequence[str]: ...
 
 
 class ActionHistoryRepository(Protocol):
