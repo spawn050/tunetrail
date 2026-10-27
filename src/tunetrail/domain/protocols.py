@@ -60,6 +60,14 @@ class IntentParser(Protocol):
     async def parse(self, request: str) -> ListeningIntent: ...
 
 
+class RequestGraph(Protocol):
+    """Turn a natural-language request into an approval-gated result."""
+
+    async def start(self, request: str, *, device_id: str | None = None) -> object: ...
+
+    async def resume(self, decision: str) -> object: ...
+
+
 class LLMFactory(Protocol):
     """Create an LLM-backed intent parser from configured providers."""
 

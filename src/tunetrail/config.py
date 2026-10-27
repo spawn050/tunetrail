@@ -25,6 +25,9 @@ class Settings(BaseModel):
     llm_provider: Literal["openrouter", "anthropic", "openai"] = "openrouter"
     llm_model: str | None = None
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    llm_allow_data_collection: bool = False
+    openrouter_api_key: str | None = None
     request_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
