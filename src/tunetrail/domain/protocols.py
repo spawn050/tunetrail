@@ -16,6 +16,7 @@ from tunetrail.domain.models import (
     ProfileSummary,
     ResolvedTrack,
 )
+from tunetrail.graph.models import ApprovalDecision, RequestGraphResult
 
 
 class CredentialStore(Protocol):
@@ -63,9 +64,9 @@ class IntentParser(Protocol):
 class RequestGraph(Protocol):
     """Turn a natural-language request into an approval-gated result."""
 
-    async def start(self, request: str, *, device_id: str | None = None) -> object: ...
+    async def start(self, request: str, *, device_id: str | None = None) -> RequestGraphResult: ...
 
-    async def resume(self, decision: str) -> object: ...
+    async def resume(self, decision: ApprovalDecision) -> RequestGraphResult: ...
 
 
 class LLMFactory(Protocol):

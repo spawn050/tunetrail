@@ -6,15 +6,21 @@ from typing import cast
 
 from textual.widgets import Input, Select, Static
 
-from tests.factories import resolved_track
+from tests.factories import intent, resolved_track
 from tunetrail.domain.models import (
     CatalogItem,
     CatalogItemKind,
     CurrentQueue,
     Device,
+    ListeningIntent,
+    PlaybackAction,
     PlaybackState,
+    QueueItem,
+    QueuePreview,
     ResolvedTrack,
 )
+from tunetrail.domain.protocols import RequestGraph
+from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.models import SpotifyUser
 from tunetrail.tui.app import (
@@ -91,6 +97,41 @@ class FakeSpotify:
         """Record confirmed append calls."""
         assert device_id == "device-1"
         self.appended.append(spotify_uri)
+
+
+class FakeRequestGraph:
+    """Return deterministic approval states without an LLM or LangGraph runtime."""
+
+    def __init__(self, track: ResolvedTrack) -> None:
+        self.preview = QueuePreview(
+            intent=resolved_intent(),
+            items=[QueueItem(track=track, explanation="Spotify result matching artist: Artist.")],
+            created_at=datetime.now(UTC),
+        )
+        self.requests: list[str] = []
+        self.decisions: list[ApprovalDecision] = []
+
+    async def start(self, request: str, *, device_id: str | None = None) -> RequestGraphResult:
+        """Expose a preview without any player mutation."""
+        assert device_id == "device-1"
+        self.requests.append(request)
+        return RequestGraphResult(outcome=RequestOutcome.PREVIEW_READY, preview=self.preview)
+
+    async def resume(self, decision: ApprovalDecision) -> RequestGraphResult:
+        """Return terminal or refreshed outcomes for explicit decisions."""
+        self.decisions.append(decision)
+        if decision is ApprovalDecision.APPROVE:
+            return RequestGraphResult(outcome=RequestOutcome.COMPLETED, preview=self.preview)
+        if decision is ApprovalDecision.REGENERATE:
+            return RequestGraphResult(outcome=RequestOutcome.PREVIEW_READY, preview=self.preview)
+        if decision is ApprovalDecision.EDIT:
+            return RequestGraphResult(outcome=RequestOutcome.EDIT_REQUESTED)
+        return RequestGraphResult(outcome=RequestOutcome.CANCELLED)
+
+
+def resolved_intent() -> ListeningIntent:
+    """Create a direct intent that makes the fake preview inspectable."""
+    return intent(action=PlaybackAction.PLAY_NOW, artists=["Artist"])
 
 
 async def test_unconfigured_shell_explains_the_missing_client_id() -> None:
@@ -195,6 +236,56 @@ async def test_command_history_is_available_only_for_the_running_session() -> No
         await pilot.press("up")
 
         assert command.value == "search track Track"
+
+
+async def test_natural_request_uses_graph_preview_then_approval_resume() -> None:
+    """Non-search input delegates to the graph and cannot invoke local player controls directly."""
+    spotify = FakeSpotify()
+    request_graph = FakeRequestGraph(spotify.track)
+    app = SpotifyControlApp(
+        spotify=cast(SpotifyClient, spotify), request_graph=cast(RequestGraph, request_graph)
+    )
+
+    async with app.run_test(size=(100, 50)) as pilot:
+        await pilot.pause()
+        command = app.query_one("#command-input", Input)
+        command.focus()
+        command.value = "Play Artist"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert "Queue preview" in str(app.query_one("#queue-preview", Static).render())
+        assert "artist: Artist" in str(app.query_one("#intent-summary", Static).render())
+        await pilot.click("#confirm-preview")
+        await pilot.pause()
+
+    assert request_graph.requests == ["Play Artist"]
+    assert request_graph.decisions == [ApprovalDecision.APPROVE]
+    assert spotify.started == []
+
+
+async def test_natural_preview_can_regenerate_then_cancel_without_mutation() -> None:
+    """Regenerate and cancel are graph decisions that do not call Spotify player APIs."""
+    spotify = FakeSpotify()
+    request_graph = FakeRequestGraph(spotify.track)
+    app = SpotifyControlApp(
+        spotify=cast(SpotifyClient, spotify), request_graph=cast(RequestGraph, request_graph)
+    )
+
+    async with app.run_test(size=(100, 50)) as pilot:
+        await pilot.pause()
+        command = app.query_one("#command-input", Input)
+        command.focus()
+        command.value = "Play Artist"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.click("#regenerate-preview")
+        await pilot.pause()
+        await pilot.click("#cancel-preview")
+        await pilot.pause()
+
+    assert request_graph.decisions == [ApprovalDecision.REGENERATE, ApprovalDecision.CANCEL]
+    assert spotify.started == []
+    assert spotify.appended == []
 
 
 def test_catalog_commands_require_an_explicit_supported_type() -> None:

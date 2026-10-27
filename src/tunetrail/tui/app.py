@@ -23,10 +23,13 @@ from tunetrail.domain.models import (
     CatalogItemKind,
     CurrentQueue,
     Device,
+    ListeningIntent,
     PlaybackAction,
     PlaybackState,
     QueuePreview,
 )
+from tunetrail.domain.protocols import RequestGraph
+from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.persistence.action_history import ActionHistoryError, FileActionHistory
 from tunetrail.services.queue_preview import build_queue_preview
 from tunetrail.spotify.client import SpotifyClient
@@ -105,7 +108,7 @@ class SpotifyControlApp(App[None]):
     ]
 
     CSS = """
-    #status, #device, #now-playing, #notice, #selection { padding: 1; }
+    #status, #device, #now-playing, #notice, #selection, #intent-summary { padding: 1; }
     #queue-preview, #current-queue, #action-history, #shortcuts { padding: 1; }
     #controls Button { margin-right: 1; }
     #catalog-actions Button, #preview-actions Button { margin-right: 1; }
@@ -122,6 +125,8 @@ class SpotifyControlApp(App[None]):
         open_browser: BrowserOpener = webbrowser.open,
         http_client: httpx.AsyncClient | None = None,
         action_history: FileActionHistory | None = None,
+        request_graph: RequestGraph | None = None,
+        natural_language_error: str | None = None,
     ) -> None:
         super().__init__()
         self._authenticator = authenticator
@@ -130,11 +135,14 @@ class SpotifyControlApp(App[None]):
         self._open_browser = open_browser
         self._http_client = http_client
         self._action_history = action_history
+        self._request_graph = request_graph
+        self._natural_language_error = natural_language_error
         self._selected_device_id: str | None = None
         self._updating_devices = False
         self._catalog_results: dict[str, CatalogItem] = {}
         self._selected_catalog_item: CatalogItem | None = None
         self._queue_preview: QueuePreview | None = None
+        self._natural_request: str | None = None
         self._playback: PlaybackState | None = None
 
     def compose(self) -> ComposeResult:
@@ -157,7 +165,8 @@ class SpotifyControlApp(App[None]):
                 placeholder="search track|artist|album|playlist <query>", id="command-input"
             )
             yield Static(
-                "Type a catalog command; ↑/↓ history; Ctrl-K command; Esc cancel; Ctrl-R refresh.",
+                "Use search <type> <query>, or a specific natural-language request; ↑/↓ history; "
+                "Ctrl-K command; Esc cancel; Ctrl-R refresh.",
                 id="shortcuts",
             )
             yield Static(
@@ -166,6 +175,7 @@ class SpotifyControlApp(App[None]):
             )
             yield Select[str]([], prompt="Select a catalog result", id="catalog-results")
             yield Static("No catalog result selected", id="selection")
+            yield Static("Listening intent: none", id="intent-summary")
             with Horizontal(id="catalog-actions"):
                 yield Button("Preview play now", id="preview-play")
                 yield Button("Preview append", id="preview-append")
@@ -173,6 +183,8 @@ class SpotifyControlApp(App[None]):
             with Horizontal(id="preview-actions"):
                 yield Button("Confirm", id="confirm-preview", variant="primary")
                 yield Button("Cancel", id="cancel-preview")
+                yield Button("Edit request", id="edit-request")
+                yield Button("Regenerate", id="regenerate-preview")
             yield Static("Current queue: unavailable", id="current-queue")
             yield Static("Action history: none", id="action-history")
             yield Static("", id="notice")
@@ -240,9 +252,12 @@ class SpotifyControlApp(App[None]):
 
     @on(Input.Submitted, "#command-input")
     def submit_catalog_command(self, event: Input.Submitted) -> None:
-        """Search a declared Spotify catalog resource from the command field."""
+        """Run explicit catalog commands or a configured natural-language request."""
         command_input = self.query_one("#command-input", CommandInput)
         command_input.remember(event.value)
+        if not event.value.strip().lower().startswith("search"):
+            self.submit_natural_request(event.value)
+            return
         try:
             kind, query = parse_catalog_search_command(event.value)
         except CatalogSearchCommandError as error:
@@ -281,12 +296,25 @@ class SpotifyControlApp(App[None]):
         """Discard a preview without contacting Spotify's player endpoints."""
         self.action_cancel_preview()
 
+    @on(Button.Pressed, "#edit-request")
+    def edit_request_button(self) -> None:
+        """Exit an interrupted natural request and return its text to the command field."""
+        self.edit_natural_request()
+
+    @on(Button.Pressed, "#regenerate-preview")
+    def regenerate_preview_button(self) -> None:
+        """Re-run deterministic candidate selection for a natural preview."""
+        self.regenerate_natural_preview()
+
     def action_focus_command(self) -> None:
         """Focus the explicit catalog command input."""
         self.query_one("#command-input", CommandInput).focus()
 
     def action_cancel_preview(self) -> None:
         """Discard the local preview; cancellation is always non-mutating."""
+        if self._natural_request is not None:
+            self.resume_natural_request(ApprovalDecision.CANCEL)
+            return
         if self._queue_preview is not None:
             self._queue_preview = None
             self._update_queue_preview()
@@ -332,6 +360,51 @@ class SpotifyControlApp(App[None]):
         )
 
     @work(exclusive=True)
+    async def submit_natural_request(self, request: str) -> None:
+        """Interpret a clear request, then stop at the graph's mandatory approval interrupt."""
+        if self._request_graph is None:
+            self._set_notice(
+                self._natural_language_error
+                or "Natural language is not configured. Set TUNETRAIL_OPENROUTER_API_KEY and "
+                "TUNETRAIL_LLM_MODEL in .env."
+            )
+            return
+        try:
+            result = await self._request_graph.start(request, device_id=self._selected_device_id)
+        except Exception as error:  # Provider/network failures are rendered without tracebacks.
+            self._set_notice(f"Natural-language request failed: {error}")
+            return
+        self._natural_request = request.strip()
+        self._apply_natural_result(result)
+
+    @work(exclusive=True)
+    async def resume_natural_request(self, decision: ApprovalDecision) -> None:
+        """Resume a graph interrupt for an explicit preview decision only."""
+        if self._request_graph is None or self._natural_request is None:
+            self._set_notice("There is no natural-language preview awaiting a decision.")
+            return
+        try:
+            result = await self._request_graph.resume(decision)
+        except Exception as error:  # Provider/Spotify errors remain user-facing and non-fatal.
+            self._set_notice(f"Natural-language request failed: {error}")
+            return
+        self._apply_natural_result(result)
+
+    def edit_natural_request(self) -> None:
+        """Request the graph's safe edit exit when a natural preview is pending."""
+        if self._natural_request is None:
+            self._set_notice("There is no natural-language request to edit.")
+            return
+        self.resume_natural_request(ApprovalDecision.EDIT)
+
+    def regenerate_natural_preview(self) -> None:
+        """Request another deterministic candidate pass without Spotify mutation."""
+        if self._natural_request is None:
+            self._set_notice("There is no natural-language preview to regenerate.")
+            return
+        self.resume_natural_request(ApprovalDecision.REGENERATE)
+
+    @work(exclusive=True)
     async def preview_selection(self, action: PlaybackAction) -> None:
         """Resolve a selection into a local, reviewable preview with no player mutation."""
         if self._spotify is None:
@@ -358,12 +431,17 @@ class SpotifyControlApp(App[None]):
         ) as error:
             self._set_notice(str(error))
             return
+        self._natural_request = None
+        self._update_intent_summary(None)
         self._update_queue_preview()
         self._set_notice("Review the queue preview, then confirm or cancel.")
 
     @work(exclusive=True)
     async def confirm_preview(self) -> None:
         """Apply the local preview only after the user explicitly confirms it."""
+        if self._natural_request is not None:
+            self.resume_natural_request(ApprovalDecision.APPROVE)
+            return
         if self._spotify is None:
             self._set_notice(self._configuration_error or "Spotify is not configured")
             return
@@ -392,6 +470,56 @@ class SpotifyControlApp(App[None]):
         self._update_queue_preview()
         self._set_notice("Spotify action completed.")
         await self._refresh_status()
+
+    def _apply_natural_result(self, result: RequestGraphResult) -> None:
+        """Render a graph state transition without bypassing its approval boundary."""
+        if result.outcome is RequestOutcome.PREVIEW_READY:
+            if result.preview is None:
+                self._set_notice("Natural-language request did not produce a reviewable preview.")
+                return
+            self._queue_preview = result.preview
+            self._update_intent_summary(result.preview.intent)
+            self._update_queue_preview()
+            self._set_notice(
+                "Review the natural-language queue preview, then confirm, edit, regenerate, "
+                "or cancel."
+            )
+            return
+        if result.outcome is RequestOutcome.CLARIFICATION_NEEDED:
+            self._queue_preview = None
+            self._natural_request = None
+            self._update_queue_preview()
+            self._update_intent_summary(None)
+            self._set_notice(result.clarification or "Please clarify that music request.")
+            return
+        if result.outcome is RequestOutcome.COMPLETED:
+            if result.preview is not None:
+                self._record_action(result.preview, ActionOutcome.SUCCEEDED)
+            self._clear_natural_preview("Spotify action completed.")
+            self.refresh_status()
+            return
+        if result.outcome is RequestOutcome.FAILED:
+            if result.preview is not None:
+                self._record_action(result.preview, ActionOutcome.FAILED)
+            self._clear_natural_preview(result.error or "Spotify action failed.")
+            return
+        if result.outcome is RequestOutcome.EDIT_REQUESTED:
+            request = self._natural_request
+            self._clear_natural_preview("Edit the request, then submit it again.")
+            if request is not None:
+                command_input = self.query_one("#command-input", CommandInput)
+                command_input.value = request
+                command_input.focus()
+            return
+        self._clear_natural_preview("Queue preview cancelled; Spotify was not changed.")
+
+    def _clear_natural_preview(self, notice: str) -> None:
+        """Clear only local graph-preview state after a safe terminal graph result."""
+        self._queue_preview = None
+        self._natural_request = None
+        self._update_queue_preview()
+        self._update_intent_summary(None)
+        self._set_notice(notice)
 
     @work(exclusive=True)
     async def sign_in(self) -> None:
@@ -573,6 +701,26 @@ class SpotifyControlApp(App[None]):
             for index, item in enumerate(preview.items, 1)
         )
         widget.update("\n".join(lines))
+
+    def _update_intent_summary(self, intent: ListeningIntent | None) -> None:
+        """Expose the structured natural-language interpretation for user review."""
+        widget = self.query_one("#intent-summary", Static)
+        if intent is None:
+            widget.update("Listening intent: none")
+            return
+        constraints: list[str] = [intent.action.value]
+        if intent.artists:
+            constraints.append(f"artist: {', '.join(intent.artists)}")
+        if intent.track_terms:
+            constraints.append(f"track: {', '.join(intent.track_terms)}")
+        if intent.year_start is not None or intent.year_end is not None:
+            start = str(intent.year_start) if intent.year_start is not None else "before"
+            end = str(intent.year_end) if intent.year_end is not None else "now"
+            constraints.append(f"year: {start}–{end}")
+        if intent.explicit_allowed is False:
+            constraints.append("non-explicit")
+        constraints.append(f"up to {intent.queue_size} tracks")
+        widget.update(f"Listening intent: {'; '.join(constraints)}")
 
     def _record_action(self, preview: QueuePreview, outcome: ActionOutcome) -> None:
         """Record confirmation outcomes without retaining queries or catalog copies."""

@@ -5,6 +5,8 @@ import httpx
 from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
+from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
+from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.paths import AppPaths
 from tunetrail.persistence.action_history import FileActionHistory
 from tunetrail.spotify.client import SpotifyClient
@@ -30,11 +32,22 @@ def build_app() -> SpotifyControlApp:
         accounts_url=settings.spotify_accounts_url,
     )
     spotify = SpotifyClient(authenticator, http_client, api_url=settings.spotify_api_url)
+    request_graph = None
+    natural_language_error: str | None = None
+    if settings.llm_model is not None or settings.openrouter_api_key is not None:
+        try:
+            request_graph = NaturalLanguageRequestGraph(
+                parser=OpenRouterLLMFactory(settings).create_intent_parser(), spotify=spotify
+            )
+        except LLMConfigurationError as error:
+            natural_language_error = str(error)
     return SpotifyControlApp(
         authenticator=authenticator,
         spotify=spotify,
         http_client=http_client,
         action_history=FileActionHistory(paths.action_history_file),
+        request_graph=request_graph,
+        natural_language_error=natural_language_error,
     )
 
 
