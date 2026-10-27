@@ -687,13 +687,19 @@ bounded result page before deciding uniqueness; pages requiring more than five
 artist lookups are rejected instead of making a decision on partial evidence.
 Name searches also reject responses without a trustworthy result count or with
 more results than the bounded page contains; a partial page cannot establish a
-unique recording. This may reduce match coverage, and the ISRC endpoint's result
-completeness still needs independent verification against the live API contract.
+unique recording. This may reduce match coverage.
 Malformed ISRC responses, responses with a conflicting explicit recording count,
 and responses at or above the 25-record parsing bound now fail rather than being
-treated as complete or empty. A missing total on a smaller response still does not
-prove completeness. Match cache keys are versioned so entries created before these
-safeguards are no longer read; old entries remain subject to normal cache cleanup.
+treated as complete or empty. The [MusicBrainz API documentation](https://musicbrainz.org/doc/MusicBrainz_API#Non-MBID_Lookups)
+states that non-MBID lookups, including ISRC, return all linked entities without
+paging; the 25-record bound here is TuneTrail's own conservative limit. The same
+documentation says included linked entities such as releases are limited to 25,
+and the [search documentation](https://musicbrainz.org/doc/MusicBrainz_API/Search)
+describes paginated searches. These contract statements do not verify actual
+responses or ensure all real-world recording associations exist in MusicBrainz.
+Release completeness also rejects boolean counts and missing release lists. Match
+cache keys are versioned so entries created before these safeguards are no longer
+read; old entries remain subject to normal cache cleanup.
 Last.fm suggestions resolved to Spotify now retain the Spotify track's ISRC for
 subsequent MusicBrainz lookups, instead of losing it or trusting a different source.
 
@@ -707,10 +713,10 @@ In particular, responses lacking an explicit release count cannot improve a year
 under the current conservative rule. Phase 6's gate remains open pending broader
 independent and preferably live comparisons. No live acceptance was performed.
 
-The latest offline Phase 6 pass added mocked ISRC and cache-version regression cases;
-formatting, Ruff, Pyright, and 150 tests passed. This does not resolve the policy
-review, establish live search response shape or ISRC completeness, or complete the
-remaining unchecked Phase 6 work and evidence gate.
+The latest offline Phase 6 pass reviewed the public API contract and added mocked
+release-completeness and cache-version regression cases. This does not resolve the
+policy review, establish live response shapes or data quality, or complete the
+remaining unchecked Phase 6 work and evidence gate. No catalog requests were made.
 
 ### Phase 7
 
