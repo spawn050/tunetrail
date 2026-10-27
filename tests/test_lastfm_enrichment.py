@@ -2,11 +2,13 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
 from tests.factories import candidate, intent
 from tunetrail.domain.models import Candidate, CandidateSource, LastfmProfile, ProfileSummary
 from tunetrail.domain.protocols import LastfmGateway, PersonalizationStore, SpotifyGateway
+from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
 from tunetrail.recommendation.lastfm import LastfmEnrichmentService
 from tunetrail.recommendation.resolver import SpotifyCandidateResolver
 
@@ -181,3 +183,19 @@ async def test_recent_tracks_supply_a_bounded_distinct_similarity_seed() -> None
     )
     assert await service.find(intent(), None) == []
     assert seeds == ["Top 0", "Top 1", "Recent"]
+
+
+async def test_profile_cache_is_isolated_by_username(tmp_path: Path) -> None:
+    """Switching Last.fm accounts cannot reuse another account's cached listening profile."""
+    store = SQLitePersonalizationStore(tmp_path / "profile.sqlite3")
+    first, second = FakeLastfm(), FakeLastfm()
+    resolver = SpotifyCandidateResolver(cast(SpotifyGateway, FakeSpotify()))
+    first_service = LastfmEnrichmentService(
+        lastfm=cast(LastfmGateway, first), resolver=resolver, store=store, username="alice"
+    )
+    second_service = LastfmEnrichmentService(
+        lastfm=cast(LastfmGateway, second), resolver=resolver, store=store, username="bob"
+    )
+    await first_service.find(intent(), None)
+    await second_service.find(intent(), None)
+    assert first.profile_reads == second.profile_reads == 3
