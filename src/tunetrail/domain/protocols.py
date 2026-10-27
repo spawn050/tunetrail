@@ -116,6 +116,10 @@ class PlaylistSignalRepository(Protocol):
 class SessionRepository(Protocol):
     """Store generated-session metadata for local repetition avoidance."""
 
+    async def record_action(
+        self, entry: ActionHistoryEntry, *, score_json: Sequence[str | None]
+    ) -> None: ...
+
     async def recent_track_uris(self, *, limit: int = 100) -> Sequence[str]: ...
 
 

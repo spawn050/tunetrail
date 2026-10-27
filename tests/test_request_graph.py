@@ -1,11 +1,18 @@
 """Tests for the approval-gated natural-language LangGraph workflow."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import cast
 
-from tests.factories import candidate, intent
-from tunetrail.domain.models import Candidate, ListeningIntent
-from tunetrail.domain.protocols import SpotifyGateway
+from tests.factories import candidate, feedback, intent
+from tunetrail.domain.models import (
+    ActionHistoryEntry,
+    Candidate,
+    Feedback,
+    ListeningIntent,
+    ProfileSummary,
+)
+from tunetrail.domain.protocols import PersonalizationStore, SpotifyGateway
 from tunetrail.graph.models import ApprovalDecision, RequestOutcome
 from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
 
@@ -48,6 +55,32 @@ class FakeSpotify:
         """Record graph-approved append calls."""
         assert device_id == "device-1"
         self.appended.append(spotify_uri)
+
+
+class FakePersonalizationStore:
+    """Provide compact local signals and capture only approval-completed session writes."""
+
+    def __init__(self) -> None:
+        self.recorded: list[ActionHistoryEntry] = []
+
+    async def get(self) -> ProfileSummary | None:
+        """Return an existing local profile suitable for vague Spotify-only requests."""
+        return ProfileSummary(favorite_artists=["Taylor Swift"], updated_at=datetime.now(UTC))
+
+    async def recent(self) -> Sequence[Feedback]:
+        """Return one harmless feedback item to exercise the profile-loading path."""
+        return [feedback(spotify_uri="spotify:track:notpresent")]
+
+    async def recent_track_uris(self) -> Sequence[str]:
+        """Return no generated-session repetition penalties for this focused test."""
+        return []
+
+    async def record_action(
+        self, entry: ActionHistoryEntry, *, score_json: Sequence[str | None]
+    ) -> None:
+        """Record only actions reached via the approved graph route."""
+        assert len(score_json) == len(entry.spotify_uris)
+        self.recorded.append(entry)
 
 
 def playable_candidate(**changes: object) -> Candidate:
@@ -140,3 +173,24 @@ async def test_graph_regeneration_retrieves_again_without_mutating_spotify() -> 
     assert result.outcome is RequestOutcome.PREVIEW_READY
     assert len(spotify.searches) == 2
     assert spotify.started == []
+
+
+async def test_graph_personalizes_vague_request_then_persists_only_after_approval() -> None:
+    """Profile-seeded requests remain approval-gated and create URI-only sessions afterward."""
+    spotify = FakeSpotify([playable_candidate()])
+    store = FakePersonalizationStore()
+    graph = NaturalLanguageRequestGraph(
+        parser=FakeParser(intent(moods=["peaceful"], activities=["studying"])),
+        spotify=cast(SpotifyGateway, spotify),
+        store=cast(PersonalizationStore, store),
+    )
+
+    preview = await graph.start("Play something peaceful for studying", device_id="device-1")
+
+    assert preview.outcome is RequestOutcome.PREVIEW_READY
+    assert spotify.searches == ['artist:"Taylor Swift"']
+    assert store.recorded == []
+    completed = await graph.resume(ApprovalDecision.APPROVE)
+
+    assert completed.outcome is RequestOutcome.COMPLETED
+    assert [entry.spotify_uris for entry in store.recorded] == [["spotify:track:track1"]]

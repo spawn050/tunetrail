@@ -2,7 +2,10 @@
 
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
+import asyncio
+import json
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Literal, Protocol, TypedDict, cast
 from uuid import uuid4
 
@@ -11,22 +14,26 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from tunetrail.domain.models import (
+    ActionHistoryEntry,
+    ActionOutcome,
     Candidate,
+    Feedback,
     ListeningIntent,
     PlaybackAction,
+    ProfileSummary,
     QueuePreview,
     ResolvedTrack,
 )
-from tunetrail.domain.protocols import IntentParser, SpotifyGateway
+from tunetrail.domain.protocols import IntentParser, PersonalizationStore, SpotifyGateway
 from tunetrail.graph.models import ApprovalDecision, RequestGraphResult, RequestOutcome
 from tunetrail.llm.intent_parser import IntentParseError
-from tunetrail.services.direct_request import (
-    DirectRequestClarification,
-    build_direct_queue_preview,
-    rank_direct_candidates,
-    spotify_search_query,
-    validate_direct_intent,
+from tunetrail.recommendation.ranking import (
+    PersonalizationClarification,
+    build_personalized_queue_preview,
+    rank_personalized_candidates,
+    validate_personalized_intent,
 )
+from tunetrail.recommendation.retrieval import SpotifyProfileCandidateRetriever
 
 
 class RequestState(TypedDict, total=False):
@@ -35,6 +42,9 @@ class RequestState(TypedDict, total=False):
     request: str
     device_id: str | None
     intent: ListeningIntent
+    profile: ProfileSummary | None
+    feedback: list[Feedback]
+    generated_uris: list[str]
     candidates: list[Candidate]
     tracks: list[ResolvedTrack]
     preview: QueuePreview
@@ -53,10 +63,16 @@ class CompiledRequestGraph(Protocol):
 class NaturalLanguageRequestGraph:
     """Execute a request graph using only an active in-memory TUI session."""
 
-    def __init__(self, *, parser: IntentParser, spotify: SpotifyGateway) -> None:
+    def __init__(
+        self,
+        *,
+        parser: IntentParser,
+        spotify: SpotifyGateway,
+        store: PersonalizationStore | None = None,
+    ) -> None:
         self._parser = parser
         self._spotify = spotify
-        self._graph: CompiledRequestGraph = _build_graph(parser, spotify)
+        self._graph: CompiledRequestGraph = _build_graph(parser, spotify, store)
         self._thread_id: str | None = None
 
     async def start(self, request: str, *, device_id: str | None = None) -> RequestGraphResult:
@@ -81,7 +97,7 @@ class NaturalLanguageRequestGraph:
         return {"configurable": {"thread_id": self._thread_id}}
 
 
-def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore[no-untyped-def]
+def _build_graph(parser: IntentParser, spotify: SpotifyGateway, store: PersonalizationStore | None):  # type: ignore[no-untyped-def]
     """Compile the fixed graph; all player mutation is downstream of `interrupt`."""
     graph = StateGraph(RequestState)
 
@@ -95,11 +111,25 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore
                 "outcome": RequestOutcome.CLARIFICATION_NEEDED,
             }
 
+    async def load_profile_and_session(state: RequestState) -> RequestState:
+        """Load compact local preference signals; raw Spotify history stays outside graph state."""
+        del state
+        if store is None:
+            return {"profile": None, "feedback": [], "generated_uris": []}
+        profile, feedback, generated_uris = await asyncio.gather(
+            store.get(), store.recent(), store.recent_track_uris()
+        )
+        return {
+            "profile": profile,
+            "feedback": list(feedback),
+            "generated_uris": list(generated_uris),
+        }
+
     def validate_intent(state: RequestState) -> RequestState:
         """Keep unsupported or vague requests out of Spotify retrieval."""
         try:
-            validate_direct_intent(_intent(state))
-        except DirectRequestClarification as error:
+            validate_personalized_intent(_intent(state), _profile(state))
+        except PersonalizationClarification as error:
             return {
                 "clarification": str(error),
                 "outcome": RequestOutcome.CLARIFICATION_NEEDED,
@@ -109,19 +139,30 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore
     async def retrieve_spotify(state: RequestState) -> RequestState:
         """Retrieve Spotify candidates from deterministic field-filtered query text."""
         intent = _intent(state)
-        return {
-            "candidates": list(
-                await spotify.search_tracks(spotify_search_query(intent), limit=intent.queue_size)
+        try:
+            candidates = await SpotifyProfileCandidateRetriever(spotify).find(
+                intent, _profile(state)
             )
-        }
+        except PersonalizationClarification as error:
+            return {
+                "clarification": str(error),
+                "outcome": RequestOutcome.CLARIFICATION_NEEDED,
+            }
+        return {"candidates": candidates}
 
     def resolve_and_rank(state: RequestState) -> RequestState:
         """Resolve Spotify candidates and preserve transparent constraint scores."""
         try:
             intent = _intent(state)
-            tracks = rank_direct_candidates(_candidates(state), intent)
-            preview = build_direct_queue_preview(intent, tracks)
-        except DirectRequestClarification as error:
+            tracks = rank_personalized_candidates(
+                _candidates(state),
+                intent,
+                profile=_profile(state),
+                feedback=_feedback(state),
+                generated_uris=_generated_uris(state),
+            )
+            preview = build_personalized_queue_preview(intent, tracks)
+        except PersonalizationClarification as error:
             return {
                 "clarification": str(error),
                 "outcome": RequestOutcome.CLARIFICATION_NEEDED,
@@ -155,7 +196,9 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore
         except (
             Exception
         ) as error:  # Spotify gateway errors are returned to the TUI without tracebacks.
+            await _record_session(store, preview, _device_id(state), ActionOutcome.FAILED)
             return {"error": str(error), "outcome": RequestOutcome.FAILED}
+        await _record_session(store, preview, _device_id(state), ActionOutcome.SUCCEEDED)
         return {"outcome": RequestOutcome.COMPLETED}
 
     def cancelled(state: RequestState) -> RequestState:
@@ -169,6 +212,7 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore
         return {"outcome": RequestOutcome.EDIT_REQUESTED}
 
     graph.add_node("parse_intent", parse_intent)
+    graph.add_node("load_profile_and_session", load_profile_and_session)
     graph.add_node("validate_intent", validate_intent)
     graph.add_node("retrieve_spotify", retrieve_spotify)
     graph.add_node("resolve_and_rank", resolve_and_rank)
@@ -178,8 +222,9 @@ def _build_graph(parser: IntentParser, spotify: SpotifyGateway):  # type: ignore
     graph.add_node("edit_requested", edit_requested)
     graph.add_edge(START, "parse_intent")
     graph.add_conditional_edges(
-        "parse_intent", _after_validation, {"end": END, "next": "validate_intent"}
+        "parse_intent", _after_validation, {"end": END, "next": "load_profile_and_session"}
     )
+    graph.add_edge("load_profile_and_session", "validate_intent")
     graph.add_conditional_edges(
         "validate_intent", _after_validation, {"end": END, "next": "retrieve_spotify"}
     )
@@ -251,6 +296,30 @@ def _intent(state: Mapping[str, object]) -> ListeningIntent:
     return intent
 
 
+def _profile(state: Mapping[str, object]) -> ProfileSummary | None:
+    """Return the optional compact profile loaded for this active request session."""
+    profile = state.get("profile")
+    if profile is None or isinstance(profile, ProfileSummary):
+        return profile
+    raise AssertionError("request graph state contained an invalid profile")
+
+
+def _feedback(state: Mapping[str, object]) -> list[Feedback]:
+    """Return explicit feedback loaded before deterministic ranking."""
+    feedback = state.get("feedback")
+    if not isinstance(feedback, list) or not all(isinstance(item, Feedback) for item in feedback):
+        raise AssertionError("request graph state did not contain feedback")
+    return cast(list[Feedback], feedback)
+
+
+def _generated_uris(state: Mapping[str, object]) -> list[str]:
+    """Return URI-only generated-session history for repetition penalties."""
+    uris = state.get("generated_uris")
+    if not isinstance(uris, list) or not all(isinstance(item, str) for item in uris):
+        raise AssertionError("request graph state did not contain generated track URIs")
+    return cast(list[str], uris)
+
+
 def _candidates(state: Mapping[str, object]) -> list[Candidate]:
     """Return Spotify candidates committed by the retrieval node."""
     candidates = state.get("candidates")
@@ -278,3 +347,32 @@ def _device_id(state: Mapping[str, object]) -> str | None:
 def _optional_text(value: object) -> str | None:
     """Narrow optional graph text for the public result model."""
     return value if isinstance(value, str) else None
+
+
+async def _record_session(
+    store: PersonalizationStore | None,
+    preview: QueuePreview,
+    device_id: str | None,
+    outcome: ActionOutcome,
+) -> None:
+    """Persist URI-only session signals after the approved Spotify path has completed."""
+    if store is None:
+        return
+    entry = ActionHistoryEntry(
+        action=preview.intent.action,
+        spotify_uris=[item.track.spotify_uri for item in preview.items],
+        device_id=device_id,
+        outcome=outcome,
+        created_at=datetime.now(UTC),
+    )
+    try:
+        await store.record_action(
+            entry,
+            score_json=[
+                json.dumps(item.track.score_breakdown, separators=(",", ":"))
+                for item in preview.items
+            ],
+        )
+    except Exception:
+        # Spotify's completed action remains true if nonessential session persistence fails.
+        return

@@ -9,6 +9,7 @@ from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.paths import AppPaths
 from tunetrail.persistence.action_history import FileActionHistory
+from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.tui.app import SpotifyControlApp
 
@@ -32,12 +33,15 @@ def build_app() -> SpotifyControlApp:
         accounts_url=settings.spotify_accounts_url,
     )
     spotify = SpotifyClient(authenticator, http_client, api_url=settings.spotify_api_url)
+    personalization_store = SQLitePersonalizationStore(paths.database_file)
     request_graph = None
     natural_language_error: str | None = None
     if settings.llm_model is not None or settings.openrouter_api_key is not None:
         try:
             request_graph = NaturalLanguageRequestGraph(
-                parser=OpenRouterLLMFactory(settings).create_intent_parser(), spotify=spotify
+                parser=OpenRouterLLMFactory(settings).create_intent_parser(),
+                spotify=spotify,
+                store=personalization_store,
             )
         except LLMConfigurationError as error:
             natural_language_error = str(error)
