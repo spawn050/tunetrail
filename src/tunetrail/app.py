@@ -8,6 +8,9 @@ from tunetrail.config import Settings
 from tunetrail.graph.request_graph import NaturalLanguageRequestGraph
 from tunetrail.lastfm.client import LastfmClient
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
+from tunetrail.musicbrainz.cache import CachedRecordingLookup
+from tunetrail.musicbrainz.client import MusicBrainzClient
+from tunetrail.musicbrainz.enrichment import MusicBrainzEnrichment
 from tunetrail.paths import AppPaths
 from tunetrail.persistence.action_history import FileActionHistory
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
@@ -51,6 +54,13 @@ def build_app() -> SpotifyControlApp:
             store=personalization_store,
             username=settings.lastfm_username,
         )
+    musicbrainz_enrichment = (
+        MusicBrainzEnrichment(
+            CachedRecordingLookup(MusicBrainzClient(http_client), personalization_store)
+        )
+        if settings.musicbrainz_enabled
+        else None
+    )
     request_graph = None
     natural_language_error: str | None = None
     if settings.llm_model is not None or settings.openrouter_api_key is not None:
@@ -60,6 +70,7 @@ def build_app() -> SpotifyControlApp:
                 spotify=spotify,
                 store=personalization_store,
                 lastfm_enrichment=lastfm_enrichment,
+                musicbrainz_enrichment=musicbrainz_enrichment,
             )
         except LLMConfigurationError as error:
             natural_language_error = str(error)

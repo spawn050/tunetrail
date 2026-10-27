@@ -653,22 +653,27 @@ and release models. The User-Agent identifies the project repository. A shared
 lock in the TuneTrail cache directory coordinates requests and retries across local
 processes using that directory, spacing starts by at least one second. It cannot
 coordinate unrelated clients or TuneTrail instances with different cache directories.
-Integration and Phase 6 acceptance remain outstanding.
+Phase 6 acceptance remains outstanding.
 
 An isolated matcher now prefers matching ISRCs and otherwise requires normalized
 artist/title agreement and compatible duration, accepting known artist aliases.
-It rejects conflicting ISRCs and equally supported distinct recording IDs. It is
-not yet wired to lookups or queue generation; no accuracy improvement is claimed.
+It rejects conflicting ISRCs and equally supported distinct recording IDs; no
+accuracy improvement is claimed.
 
 The ISRC-first lookup flow now calls the matcher, falls back to name search only
 after an empty ISRC result, and preserves source failures instead of treating them
-as negative matches. This flow is not yet wired to queue generation.
+as negative matches.
 
 Normalized successful recording matches can now be cached for 30 days using
 hashed matching-evidence keys, with a 1,000-entry cap and profile-reset cleanup.
-Failures and ambiguous misses are not cached. Cache reads and explicit refreshes
-are separated so the interactive path need not wait for MusicBrainz; integration
-and verification of actual background scheduling remain outstanding.
+Failures and ambiguous misses are not cached. Opt-in graph integration reads cached
+matches before ranking and refreshes up to three cache misses in the background.
+A missing year is filled only for a matching album title with a single supported
+release year, excluding common edition markers. The queue explains this year
+evidence and preserves Spotify identity and the approval boundary. This is a
+conservative partial implementation, not a verified improvement in era accuracy;
+aliases are not yet fetched during name search and release/edition handling and
+representative comparisons remain incomplete. Phase 6's gate remains open.
 
 ### Phase 7
 

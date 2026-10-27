@@ -211,6 +211,12 @@ class CandidateSourceProvider(Protocol):
     ) -> Sequence[Candidate]: ...
 
 
+class CandidateMetadataProvider(Protocol):
+    """Optionally annotate Spotify-resolved candidates without changing playback state."""
+
+    async def enrich(self, candidates: Sequence[Candidate]) -> Sequence[Candidate]: ...
+
+
 class TrackResolver(Protocol):
     """Resolve candidates to playable Spotify tracks."""
 

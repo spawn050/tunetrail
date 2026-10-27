@@ -32,6 +32,7 @@ class Settings(BaseModel):
     lastfm_api_key: str | None = None
     lastfm_username: str | None = None
     lastfm_api_url: str = "https://ws.audioscrobbler.com/2.0/"
+    musicbrainz_enabled: bool = False
     request_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

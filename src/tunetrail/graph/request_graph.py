@@ -5,6 +5,7 @@
 import asyncio
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Literal, Protocol, TypedDict, cast
 from uuid import uuid4
@@ -25,6 +26,7 @@ from tunetrail.domain.models import (
     ResolvedTrack,
 )
 from tunetrail.domain.protocols import (
+    CandidateMetadataProvider,
     CandidateSourceProvider,
     IntentParser,
     PersonalizationStore,
@@ -75,10 +77,13 @@ class NaturalLanguageRequestGraph:
         spotify: SpotifyGateway,
         store: PersonalizationStore | None = None,
         lastfm_enrichment: CandidateSourceProvider | None = None,
+        musicbrainz_enrichment: CandidateMetadataProvider | None = None,
     ) -> None:
         self._parser = parser
         self._spotify = spotify
-        self._graph: CompiledRequestGraph = _build_graph(parser, spotify, store, lastfm_enrichment)
+        self._graph: CompiledRequestGraph = _build_graph(
+            parser, spotify, store, lastfm_enrichment, musicbrainz_enrichment
+        )
         self._thread_id: str | None = None
 
     async def start(self, request: str, *, device_id: str | None = None) -> RequestGraphResult:
@@ -108,6 +113,7 @@ def _build_graph(
     spotify: SpotifyGateway,
     store: PersonalizationStore | None,
     lastfm_enrichment: CandidateSourceProvider | None,
+    musicbrainz_enrichment: CandidateMetadataProvider | None,
 ):  # type: ignore[no-untyped-def]
     """Compile the fixed graph; all player mutation is downstream of `interrupt`."""
     graph = StateGraph(RequestState)
@@ -159,15 +165,19 @@ def _build_graph(
                 "clarification": str(error),
                 "outcome": RequestOutcome.CLARIFICATION_NEEDED,
             }
-        if lastfm_enrichment is None:
-            return {"candidates": candidates}
-        enriched: Sequence[Candidate]
-        try:
-            enriched = await lastfm_enrichment.find(intent, _profile(state))
-        except Exception:
-            # Optional discovery must never block a valid Spotify-only preview.
-            enriched = []
-        return {"candidates": _merge_candidates(candidates, enriched)}
+        if lastfm_enrichment is not None:
+            enriched: Sequence[Candidate]
+            try:
+                enriched = await lastfm_enrichment.find(intent, _profile(state))
+            except Exception:
+                # Optional discovery must never block a valid Spotify-only preview.
+                enriched = []
+            candidates = _merge_candidates(candidates, enriched)
+        if musicbrainz_enrichment is not None:
+            # A cache or optional metadata error must preserve the Spotify results.
+            with suppress(Exception):
+                candidates = list(await musicbrainz_enrichment.enrich(candidates))
+        return {"candidates": candidates}
 
     def resolve_and_rank(state: RequestState) -> RequestState:
         """Resolve Spotify candidates and preserve transparent constraint scores."""

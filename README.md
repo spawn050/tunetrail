@@ -67,6 +67,22 @@ explicit confirmation. The local SQLite database caches normalized profile signa
 for six hours and similarity results for 24 hours; profile reset removes this
 cache. No Last.fm API key, raw response, or Last.fm session is stored there.
 
+## Optional MusicBrainz metadata
+
+Set `TUNETRAIL_MUSICBRAINZ_ENABLED=true` in `.env` to enable this source. No API
+key is needed. TuneTrail sends candidate artist/title or ISRC metadata to
+MusicBrainz for public lookup. Preview generation uses only cached matches; up
+to three cache misses are refreshed in the background, so results generally
+become available on a later request. Errors leave Spotify results unchanged.
+
+Only uniquely supported normalized matches are cached, for 30 days and at most
+1,000 entries; profile reset clears them. A missing Spotify year may be filled
+only when the matched recording has an unambiguous, matching release title;
+remaster/live/deluxe album titles and conflicting release years are excluded.
+Spotify playback identity remains unchanged and confirmation is still required.
+Requests from TuneTrail processes sharing its cache directory are paced together;
+other applications and separate cache directories are not coordinated.
+
 ## Catalog queue workflow
 
 TuneTrail's catalog commands remain explicit and keyboard-first.

@@ -289,6 +289,8 @@ def _explanation(intent: ListeningIntent, track: ResolvedTrack) -> str:
         parts.append("Spotify-only profile match; mood/activity metadata is not inferred")
     if "lastfm_url" in candidate.provenance or "lastfm_method" in candidate.provenance:
         parts.append("Last.fm similarity evidence resolved to Spotify")
+    if "musicbrainz_year_source" in candidate.provenance:
+        parts.append("year from a matched MusicBrainz release")
     if not parts:
         parts.append("valid Spotify result from your local profile seeds")
     return f"Selected for {', '.join(parts)}."
