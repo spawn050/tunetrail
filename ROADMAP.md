@@ -343,20 +343,20 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 **Goal:** turn clear natural-language requests into safe, reviewable Spotify actions.
 
-- [ ] Implement an LLM provider factory with OpenRouter as the first backend.
-- [ ] Add configuration for model name, temperature, retry behavior, and provider data-collection policy.
-- [ ] Define a strict Pydantic `ListeningIntent` schema and prompt contract.
-- [ ] Implement OpenRouter structured-output parsing with schema validation and malformed-response recovery.
-- [ ] Add direct Anthropic and OpenAI adapters, or leave clearly tested extension points if credentials are unavailable.
-- [ ] Implement LangGraph state models and graph compilation.
-- [ ] Implement `parse_intent` and deterministic intent-validation nodes.
-- [ ] Implement clarification flow for material ambiguity, such as an unspecified artist/version or conflicting years.
-- [ ] Implement a Spotify-only candidate retrieval node for direct artist/track/year constraints.
-- [ ] Implement a deterministic resolver/ranker stub sufficient for direct requests.
-- [ ] Implement queue-preview and explicit approval interrupt/resume flow.
-- [ ] Implement safe cancellation, edit, and regenerate graph exits.
-- [ ] Add graph tests for successful parsing, malformed output, ambiguity, approval, cancellation, and LLM timeouts.
-- [ ] Add canonical prompt fixtures, including Taylor Swift era requests and invalid/adversarial prompts.
+- [x] Implement an LLM provider factory with OpenRouter as the first backend.
+- [x] Add configuration for model name, temperature, retry behavior, and provider data-collection policy.
+- [x] Define a strict Pydantic `ListeningIntent` schema and prompt contract.
+- [x] Implement OpenRouter structured-output parsing with schema validation and malformed-response recovery.
+- [x] Add direct Anthropic and OpenAI adapters, or leave clearly tested extension points if credentials are unavailable.
+- [x] Implement LangGraph state models and graph compilation.
+- [x] Implement `parse_intent` and deterministic intent-validation nodes.
+- [x] Implement clarification flow for material ambiguity, such as an unspecified artist/version or conflicting years.
+- [x] Implement a Spotify-only candidate retrieval node for direct artist/track/year constraints.
+- [x] Implement a deterministic resolver/ranker stub sufficient for direct requests.
+- [x] Implement queue-preview and explicit approval interrupt/resume flow.
+- [x] Implement safe cancellation, edit, and regenerate graph exits.
+- [x] Add graph tests for successful parsing, malformed output, ambiguity, approval, cancellation, and LLM timeouts.
+- [x] Add canonical prompt fixtures, including Taylor Swift era requests and invalid/adversarial prompts.
 
 **Phase gate:** direct natural-language requests produce an inspectable structured intent and never mutate Spotify playback before an approval interrupt resumes the graph.
 
@@ -487,7 +487,13 @@ Local verification passes with `uv run ruff format --check .`, `uv run ruff chec
 
 ### Phase 3
 
-_No implementation notes yet._
+Implemented provider-neutral structured intent parsing with OpenRouter as the initial backend. The project-root `.env` now supports `TUNETRAIL_OPENROUTER_API_KEY`, `TUNETRAIL_LLM_MODEL`, model temperature, bounded retries, and an opt-in data-collection setting; OpenRouter routing requests no data collection by default. Anthropic/OpenAI configuration has a tested, actionable extension-point error until direct adapters are added.
+
+The in-memory LangGraph request flow parses intent, validates that it is a clear direct artist/track/year request, retrieves Spotify candidates, applies deterministic hard filters and ranking, and builds an inspectable queue preview. It pauses with a mandatory approval interrupt before the only graph node capable of calling Spotify player APIs. Approval resumes that node; cancellation and edit exit without mutation, while regeneration retrieves/ranks again and interrupts again. Graph state and raw requests are held only for the active TUI session.
+
+Natural-language input now shares the command field with explicit `search ...` commands. It displays the parsed intent and provides confirm, cancel, edit, and regenerate controls. Phase 3 intentionally defers mood/activity, duration, familiarity, and discovery requests to Phase 4 rather than falling back to generic playlist search. The LLM receives only the request and schema prompt; it cannot produce a final URI, rank results, access profile data, or mutate playback.
+
+Local verification passes with `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`, and `uv run pytest`, covering structured parser recovery/timeouts, direct retrieval/filtering, approval/cancellation/edit/regenerate graph paths, TUI handoff, and canonical Taylor Swift/adversarial prompt fixtures.
 
 ### Phase 4
 

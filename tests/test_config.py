@@ -15,7 +15,10 @@ def test_settings_loads_dotenv_then_environment(tmp_path: Path) -> None:
     env_file.write_text(
         "TUNETRAIL_SPOTIFY_CLIENT_ID=from-dotenv\n"
         "TUNETRAIL_LLM_MODEL=from-dotenv\n"
-        "TUNETRAIL_LLM_TEMPERATURE=0.3\n",
+        "TUNETRAIL_LLM_TEMPERATURE=0.3\n"
+        "TUNETRAIL_LLM_MAX_RETRIES=3\n"
+        "TUNETRAIL_LLM_ALLOW_DATA_COLLECTION=true\n"
+        "TUNETRAIL_OPENROUTER_API_KEY=from-dotenv-key\n",
         encoding="utf-8",
     )
 
@@ -24,6 +27,9 @@ def test_settings_loads_dotenv_then_environment(tmp_path: Path) -> None:
     assert settings.spotify_client_id == "from-dotenv"
     assert settings.llm_model == "from-environment"
     assert settings.llm_temperature == 0.3
+    assert settings.llm_max_retries == 3
+    assert settings.llm_allow_data_collection is True
+    assert settings.openrouter_api_key == "from-dotenv-key"
 
 
 def test_settings_automatically_loads_project_dotenv(

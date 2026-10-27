@@ -48,7 +48,7 @@ class StructuredIntentParser:
                     ]
                 )
                 return ListeningIntent.model_validate(response)
-            except (ValidationError, TypeError, ValueError) as error:
+            except (TimeoutError, ValidationError, TypeError, ValueError) as error:
                 last_error = error
         raise IntentParseError(
             "TuneTrail could not understand that request. Please try a more specific request."

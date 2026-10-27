@@ -125,3 +125,18 @@ async def test_graph_returns_clarification_before_spotify_for_vague_requests() -
     assert result.outcome is RequestOutcome.CLARIFICATION_NEEDED
     assert result.clarification is not None
     assert spotify.searches == []
+
+
+async def test_graph_regeneration_retrieves_again_without_mutating_spotify() -> None:
+    """Regeneration creates another preview and remains upstream of the approval route."""
+    spotify = FakeSpotify([playable_candidate()])
+    graph = NaturalLanguageRequestGraph(
+        parser=FakeParser(intent(artists=["Taylor Swift"])), spotify=cast(SpotifyGateway, spotify)
+    )
+
+    await graph.start("Play Taylor Swift", device_id="device-1")
+    result = await graph.resume(ApprovalDecision.REGENERATE)
+
+    assert result.outcome is RequestOutcome.PREVIEW_READY
+    assert len(spotify.searches) == 2
+    assert spotify.started == []
