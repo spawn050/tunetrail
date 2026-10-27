@@ -644,7 +644,15 @@ failure remains uninvestigated and is not evidence of a Phase 5 regression.
 
 ### Phase 6
 
-_No implementation notes yet._
+Phase 6 was started with the project owner's explicit override of the still-open
+Phase 5 gate. The Phase 5 diversity and accuracy evidence remains outstanding and
+must be revisited; this override does not mark that gate as satisfied.
+
+Initial work adds a read-only MusicBrainz client and normalized artist, recording,
+and release models. A shared in-process/event-loop limiter spaces requests and
+retries by at least one second; the User-Agent identifies the project repository.
+The client is not yet connected to queue generation. Cross-process coordination,
+matching, caching, integration, and Phase 6 acceptance remain outstanding.
 
 ### Phase 7
 

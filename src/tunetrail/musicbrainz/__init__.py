@@ -1,0 +1,1 @@
+"""Optional MusicBrainz metadata integration."""
