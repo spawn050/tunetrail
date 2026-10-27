@@ -48,4 +48,6 @@ def _key(candidate: Candidate) -> str:
     evidence = "\0".join(
         [candidate.isrc or "", candidate.title, *candidate.artists, str(candidate.duration_ms)]
     )
-    return "musicbrainz:" + sha256(evidence.casefold().encode()).hexdigest()
+    # Version the key whenever matching safety rules change; older cached matches
+    # may have been accepted using incomplete search results.
+    return "musicbrainz:v2:" + sha256(evidence.casefold().encode()).hexdigest()

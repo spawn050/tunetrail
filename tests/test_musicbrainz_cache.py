@@ -1,6 +1,7 @@
 """Normalized cache expiry, privacy, and reset."""
 
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 
 from tunetrail.domain.models import Candidate, CandidateSource
@@ -67,3 +68,25 @@ async def test_expiry(tmp_path: Path) -> None:
         "key", match, refreshed_at=now, expires_at=now + timedelta(seconds=1)
     )
     assert await store.musicbrainz_match("key", now=now + timedelta(seconds=1)) is None
+
+
+async def test_legacy_matches_do_not_bypass_stricter_matching(tmp_path: Path) -> None:
+    store = SQLitePersonalizationStore(tmp_path / "store.sqlite")
+    service = CachedRecordingLookup(FakeLookup(), store)
+    candidate = Candidate(
+        source=CandidateSource.SPOTIFY,
+        source_id="1",
+        title="Song",
+        artists=["Artist"],
+        isrc="USABC1234567",
+    )
+    match = await service.refresh(candidate)
+    assert match is not None
+    now = datetime.now(UTC)
+    evidence = "\0".join([candidate.isrc or "", candidate.title, *candidate.artists, "None"])
+    legacy_key = "musicbrainz:" + sha256(evidence.casefold().encode()).hexdigest()
+    await store.reset()
+    await store.save_musicbrainz_match(
+        legacy_key, match, refreshed_at=now, expires_at=now + timedelta(days=1)
+    )
+    assert await service.cached(candidate) is None
