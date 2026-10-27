@@ -86,6 +86,23 @@ class SQLitePersonalizationStore:
         """Replace the compact profile atomically without retaining source payloads."""
         await self._run(lambda connection: self._save_profile(connection, profile))
 
+    async def save_profile_refresh(
+        self,
+        profile: ProfileSummary,
+        signals: Sequence[PlaylistSignal],
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        """Atomically save profile data, refreshed playlist references, and cache metadata."""
+        if expires_at < refreshed_at:
+            raise ValueError("cache expiry cannot precede refresh time")
+        await self._run(
+            lambda connection: self._save_profile_refresh(
+                connection, profile, signals, refreshed_at, expires_at
+            )
+        )
+
     async def add(self, feedback: Feedback) -> None:
         """Append explicit feedback so newer user choices always remain available."""
         await self._run(
@@ -227,6 +244,26 @@ class SQLitePersonalizationStore:
                 profile.summary,
                 _timestamp(profile.updated_at),
             ),
+        )
+
+    @staticmethod
+    def _save_profile_refresh(
+        connection: sqlite3.Connection,
+        profile: ProfileSummary,
+        signals: Sequence[PlaylistSignal],
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None:
+        SQLitePersonalizationStore._save_profile(connection, profile)
+        SQLitePersonalizationStore._replace_playlist_signals(connection, signals)
+        connection.execute(
+            """
+            INSERT INTO cache_metadata (cache_key, refreshed_at, expires_at) VALUES (?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                refreshed_at = excluded.refreshed_at,
+                expires_at = excluded.expires_at
+            """,
+            ("profile-summary", _timestamp(refreshed_at), _timestamp(expires_at)),
         )
 
     @staticmethod

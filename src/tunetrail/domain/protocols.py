@@ -1,6 +1,7 @@
 """Provider-neutral interfaces for infrastructure and application services."""
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Literal, Protocol
 
 from tunetrail.domain.models import (
@@ -116,6 +117,23 @@ class SessionRepository(Protocol):
     """Store generated-session metadata for local repetition avoidance."""
 
     async def recent_track_uris(self, *, limit: int = 100) -> Sequence[str]: ...
+
+
+class PersonalizationStore(
+    ProfileRepository, FeedbackRepository, PlaylistSignalRepository, SessionRepository, Protocol
+):
+    """The local persistence surface required by Spotify-only personalization."""
+
+    async def save_profile_refresh(
+        self,
+        profile: ProfileSummary,
+        signals: Sequence[PlaylistSignal],
+        *,
+        refreshed_at: datetime,
+        expires_at: datetime,
+    ) -> None: ...
+
+    async def reset(self) -> None: ...
 
 
 class ActionHistoryRepository(Protocol):
