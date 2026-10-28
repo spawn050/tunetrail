@@ -106,7 +106,10 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
     @app.exception_handler(httpx.HTTPError)
     async def spotify_error(_request: object, error: Exception) -> JSONResponse:
         if isinstance(error, (SpotifyAuthorizationError, SpotifyAuthenticationError)):
-            detail = "Spotify authentication failed. Check credentials and setup; existing credentials were preserved."
+            detail = (
+                "Spotify authentication failed. Check credentials and setup; "
+                "existing credentials were preserved."
+            )
         elif isinstance(error, SpotifyNoActiveDeviceError):
             detail = (
                 "No active Spotify device. Open Spotify on a device and refresh the device list."
@@ -162,7 +165,8 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
         except Exception as error:
             raise HTTPException(
                 502,
-                "Chat provider failed or returned invalid output. Check configuration and try rephrasing.",
+                "Chat provider failed or returned invalid output. "
+                "Check configuration and try rephrasing.",
             ) from error
 
     @app.get("/api/preferences")
