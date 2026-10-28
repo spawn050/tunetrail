@@ -289,3 +289,84 @@ async def test_cancel_expiry_source_failure_and_profile_controls(tmp_path: Path)
         ).status_code == 200
         assert (await client.get("/api/preferences")).json() == []
     await services.http.aclose()
+
+
+@respx.mock
+async def test_feedback_to_queue_preview_cancel_and_single_approval(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    services.discovery = IndependentDiscovery(Source())
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    respx.get("https://api.example/v1/search").mock(
+        return_value=httpx.Response(
+            200, json={"tracks": {"items": [{**track_payload(), "is_playable": True}], "total": 1}}
+        )
+    )
+    queue = respx.post("https://api.example/v1/me/player/queue").mock(
+        return_value=httpx.Response(204)
+    )
+    respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        headers = {"x-tunetrail-token": (await client.get("/api/session")).json()["token"]}
+        discovery = await client.post(
+            "/api/discovery",
+            headers=headers,
+            json={
+                "seeds": [{"kind": "recording", "musicbrainz_id": str(UUID(int=1))}],
+                "limit": 1,
+                "independently_obtained": True,
+            },
+        )
+        assert discovery.status_code == 200
+        feedback = await client.post(
+            "/api/feedback",
+            headers=headers,
+            json={
+                "subject": "recording",
+                "name": "Track",
+                "artist": "Artist",
+                "musicbrainz_id": str(UUID(int=1)),
+                "response": "like",
+                "source": "survey",
+            },
+        )
+        assert feedback.status_code == 200
+        body = {
+            "discovery_id": discovery.json()["discovery_id"],
+            "intent": {"queue_size": 1, "action": "append_queue"},
+        }
+        first = (await client.post("/api/preview", headers=headers, json=body)).json()
+        assert first["matches"][0]["ranked"]["score"] == 1
+        assert first["proposal_id"] and not queue.called
+        assert (
+            await client.post(
+                "/api/cancel", headers=headers, json={"proposal_id": first["proposal_id"]}
+            )
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/api/approval",
+                headers=headers,
+                json={"proposal_id": first["proposal_id"], "explicitly_approve": True},
+            )
+        ).status_code == 404
+        assert not queue.called
+        second = (await client.post("/api/preview", headers=headers, json=body)).json()
+        approval = {"proposal_id": second["proposal_id"], "explicitly_approve": True}
+        assert (
+            await client.post("/api/approval", headers=headers, json=approval)
+        ).status_code == 200
+        assert (
+            await client.post("/api/approval", headers=headers, json=approval)
+        ).status_code == 404
+        assert queue.call_count == 1
+    await services.http.aclose()

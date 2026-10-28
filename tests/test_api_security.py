@@ -1,10 +1,12 @@
 """Local origin and mutation protection without network access."""
 
+import sqlite3
 from pathlib import Path
 
 import httpx
 import pytest
 
+from tests.test_api_flow import Parser
 from tunetrail.api.app import Services, create_app
 from tunetrail.config import Settings
 from tunetrail.persistence.sqlite_store import IncompatibleProfileError
@@ -112,4 +114,23 @@ async def test_frontend_assets_share_origin_protection(
         assert (
             await client.get("/assets/app.js", headers={"host": "evil.test:8766"})
         ).status_code == 403
+    await services.http.aclose()
+
+
+async def test_raw_chat_is_not_stored_in_profile_database(tmp_path: Path) -> None:
+    database = tmp_path / "db"
+    services = Services(Settings(), database, tmp_path / "auth")
+    services.parser = Parser()
+    secret_chat = "private raw message sentinel not a preference"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        headers = {"x-tunetrail-token": (await client.get("/api/session")).json()["token"]}
+        assert (
+            await client.post("/api/chat", headers=headers, json={"message": secret_chat})
+        ).status_code == 200
+        assert (await client.get("/api/preferences")).json()[0]["name"] == "Artist"
+    with sqlite3.connect(database) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert secret_chat not in dump
     await services.http.aclose()
