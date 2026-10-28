@@ -156,6 +156,13 @@ def _candidate(recording: Recording, seed: IndependentSeed) -> IndependentCandid
     artists = tuple(artist.name.strip() for artist in recording.artists)
     if not title or not artists or any(not name for name in artists):
         return None
+    if any(
+        len(value) > 1000
+        or "spotify:" in value.casefold()
+        or "open.spotify.com" in value.casefold()
+        for value in (title, *artists)
+    ):
+        return None
     duration = (
         recording.duration_ms if recording.duration_ms and recording.duration_ms > 0 else None
     )

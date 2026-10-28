@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from tunetrail.domain.models import Candidate, CandidateSource
+from tunetrail.musicbrainz.client import MusicBrainzClient, RateLimiter
 from tunetrail.musicbrainz.models import Artist, Recording
 from tunetrail.reccobeats.client import ReccoBeatsEnricher
 from tunetrail.recommendation.independent_discovery import (
@@ -254,3 +255,45 @@ async def test_rate_limit_on_feature_request_blocks_next_search() -> None:
         assert (await service.enrich(candidate())).features is None
         assert (await service.enrich(candidate())).status == "source unavailable"
     assert len(calls) == 2
+
+
+async def test_end_to_end_requests_exclude_provider_spotify_metadata() -> None:
+    calls: list[httpx.Request] = []
+
+    class ImmediateLimiter:
+        async def get(
+            self, client: httpx.AsyncClient, url: str, params: dict[str, str]
+        ) -> httpx.Response:
+            return await client.get(url, params=params)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.host == "musicbrainz.org":
+            return httpx.Response(
+                200,
+                json={
+                    "id": str(MBID),
+                    "title": "A Song",
+                    "length": 180000,
+                    "artist-credit": [{"artist": {"id": str(ARTIST_ID), "name": "An Artist"}}],
+                    "relations": [{"url": {"resource": "spotify:track:SECRET"}}],
+                },
+            )
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json=page())
+        return httpx.Response(
+            200, json={"id": str(RBID), "energy": 0.5, "href": "spotify:track:SECRET"}
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        musicbrainz = MusicBrainzClient(http, limiter=cast(RateLimiter, ImmediateLimiter()))
+        result = await IndependentDiscovery(musicbrainz).discover(
+            [IndependentSeed(SeedKind.RECORDING, MBID)], limit=1, enricher=ReccoBeatsEnricher(http)
+        )
+    assert result.enriched[0].features is not None
+    assert [request.url.host for request in calls] == [
+        "musicbrainz.org",
+        "api.reccobeats.com",
+        "api.reccobeats.com",
+    ]
+    assert all("SECRET" not in str(request.url) for request in calls)
