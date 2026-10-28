@@ -108,4 +108,25 @@ describe('local interface', () => {
     await screen.findByText('Review before approval');
     expect(api.post).toHaveBeenCalledWith('/api/preview', expect.objectContaining({ intent: expect.objectContaining({ action: 'append_queue', queue_size: 1 }) }));
   });
+
+  it('blocks approval for an unavailable Spotify match and an ambiguous chat request', async () => {
+    const user = userEvent.setup(); const api = mockApi();
+    const original = api.post;
+    api.post = vi.fn((path, body) => {
+      if (path === '/api/preview') return Promise.resolve({ proposal_id: null, matches: [], issues: ['Spotify search unavailable'] });
+      if (path === '/api/chat') return Promise.resolve({ clarification: 'Which artist?', preferences: [] });
+      return original(path, body);
+    });
+    render(<App api={api} />); await screen.findByText('No explicit preferences yet.');
+    await discover(user);
+    await user.click(screen.getByRole('button', { name: 'Create preview' }));
+    await screen.findByText('Spotify search unavailable');
+    expect(screen.getByText('No approvable proposal is available.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Approve/ })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Request or lasting preference'), 'Play that artist');
+    await user.click(screen.getByRole('button', { name: 'Send chat' }));
+    await screen.findByText('Clarification needed: Which artist?');
+    expect(screen.getByRole('button', { name: 'Create preview' })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalledWith('/api/approval', expect.anything());
+  });
 });
