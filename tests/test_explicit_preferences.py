@@ -85,7 +85,7 @@ async def test_legacy_database_is_not_modified(tmp_path: Path) -> None:
             ('["old"]', "[]", "[]", "legacy", "2020-01-01T00:00:00+00:00"),
         )
     before = path.read_bytes()
-    with pytest.raises(IncompatibleProfileError):
+    with pytest.raises(IncompatibleProfileError, match="Ask the owner"):
         SQLitePersonalizationStore(path)
     assert path.read_bytes() == before
     with sqlite3.connect(path) as connection:

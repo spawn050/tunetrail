@@ -11,6 +11,10 @@ from tunetrail.domain.models import ExplicitPreference
 
 _T = TypeVar("_T")
 _VERSION = "explicit-profile-1"
+_INCOMPATIBLE_MESSAGE = (
+    "Existing database has an incompatible profile schema; existing data was not changed. "
+    "Ask the owner how to handle the existing database before proceeding."
+)
 _COLUMNS = (
     "subject",
     "name",
@@ -83,15 +87,9 @@ class SQLitePersonalizationStore:
                     row[1] for row in connection.execute("PRAGMA table_info(explicit_preference)")
                 )
                 if version != [(_VERSION,)] or columns != _COLUMNS:
-                    raise IncompatibleProfileError(
-                        "Existing database has an incompatible profile schema; "
-                        "existing data was not changed."
-                    )
+                    raise IncompatibleProfileError(_INCOMPATIBLE_MESSAGE)
         except sqlite3.DatabaseError as error:
-            raise IncompatibleProfileError(
-                "Existing database has an incompatible profile schema; "
-                "existing data was not changed."
-            ) from error
+            raise IncompatibleProfileError(_INCOMPATIBLE_MESSAGE) from error
 
     async def set_preference(self, preference: ExplicitPreference) -> None:
         """Save one explicit preference."""
