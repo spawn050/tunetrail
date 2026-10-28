@@ -31,11 +31,36 @@ explicit preference store leaves legacy database tables and records untouched.
 
 ## New foundation
 
-The new `explicit_preference` table is separate from legacy tables. Its service
-supports a bounded structured profile, chat interpretation, inspection and an
-isolated reset. The structured chat parser and service are not yet wired into the
-application; there is no current application runtime. Direct input, tiles and
-surveys still need user-facing integration. No raw chat is saved by the new service.
+The new `explicit_preference` table uses explicit columns and a bounded 1,000-entry
+profile. It stores the latest explicit strength (-2 through 2), source and timestamp,
+not an event history or raw chat. Its service supports validated chat interpretation,
+direct input, feedback, inspection, removal and isolated reset. Parser and service
+can be composed without a provider or UI; there is no current application runtime.
+Tiles and surveys still need user-facing integration. A hosted LLM receives the chat.
+
+Identity uses subject plus stripped, case-folded name and recording artist context;
+MusicBrainz IDs are unique within subject and can be attached to a matching name.
+Updates without an ID retain the existing ID. Conflicting IDs or names are rejected,
+not merged. Name-only identities cannot distinguish namesakes, and ID-only recordings
+cannot later gain artist context automatically; these cases require clarification.
+Only independently supplied identities are permitted by contract; syntax checks
+reject obvious Spotify references but cannot prove metadata provenance.
+
+New databases contain only the new profile schema. Opening any existing database
+without its matching schema marker and columns fails read-only without migration or
+replacement, including old JSON profiles. Handling those files is an owner decision.
+Reset deletes only rows in the new profile; it does not delete credentials, exports,
+legacy records or external data.
+
+## Provider boundary review
+
+The retained MusicBrainz client accepts arbitrary artist/title strings and ISRCs;
+it cannot establish their provenance. The retained matching code was designed for
+Spotify candidates. Neither is wired into the explicit profile flow or safe to reuse
+as an independent-source boundary without a provenance-aware adapter and tests.
+The retained Spotify catalog/playback and direct-request services are also not part
+of this flow; approval enforcement must be rebuilt and tested before reuse. No
+ReccoBeats integration or provider-policy clearance is implied by this phase.
 
 The configured default database path was checked for existence during this pass;
 no database was present there. Other installations or overrides may have data.
