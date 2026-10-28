@@ -48,13 +48,38 @@ class IndependentCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class FeatureEstimate:
+    """Available ReccoBeats values in their documented native scales."""
+
+    reccobeats_id: UUID
+    values: tuple[tuple[str, int | float], ...]
+    source: str = "reccobeats"
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichedCandidate:
+    """Keep the independent identity even when optional enrichment is unavailable."""
+
+    candidate: IndependentCandidate
+    features: FeatureEstimate | None
+    status: str
+
+
+class CandidateEnricher(Protocol):
+    """Optional source for estimates, never Spotify resolution."""
+
+    async def enrich(self, candidate: IndependentCandidate) -> EnrichedCandidate: ...
+
+
+@dataclass(frozen=True, slots=True)
 class DiscoveryResult:
     """Candidates and explicit limitations rather than inferred matches."""
 
     candidates: tuple[IndependentCandidate, ...]
     source_failures: int
     needs_more_seeds: bool
-    enrichment_status: str = "unavailable: independent ReccoBeats lookup not established"
+    enrichment_status: str = "not requested"
+    enriched: tuple[EnrichedCandidate, ...] = ()
 
 
 class IndependentMusicBrainz(Protocol):
@@ -75,7 +100,11 @@ class IndependentDiscovery:
         self._timeout = timeout_seconds
 
     async def discover(
-        self, seeds: Sequence[IndependentSeed], *, limit: int = 10
+        self,
+        seeds: Sequence[IndependentSeed],
+        *,
+        limit: int = 10,
+        enricher: CandidateEnricher | None = None,
     ) -> DiscoveryResult:
         """Return up to 20 results; names without an MBID need clarification."""
         if type(limit) is not int or not 1 <= limit <= 20 or len(seeds) > 5:
@@ -102,7 +131,15 @@ class IndependentDiscovery:
                 candidate = _candidate(recording, seed)
                 if candidate is not None:
                     candidates.setdefault(candidate.recording_id, candidate)
-        return DiscoveryResult(tuple(candidates.values()), failures, len(candidates) < limit)
+        found = tuple(candidates.values())
+        enriched = tuple([await enricher.enrich(item) for item in found]) if enricher else ()
+        return DiscoveryResult(
+            found,
+            failures,
+            len(found) < limit,
+            "requested" if enricher else "not requested",
+            enriched,
+        )
 
 
 def _candidate(recording: Recording, seed: IndependentSeed) -> IndependentCandidate | None:

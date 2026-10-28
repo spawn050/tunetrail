@@ -57,7 +57,7 @@ async def test_browse_sends_only_independent_id_and_returns_bounded_metadata() -
     assert len(result.candidates) == 1 and result.needs_more_seeds
     assert result.candidates[0].recording_id == SONG
     assert result.candidates[0].source == "musicbrainz"
-    assert "unavailable" in result.enrichment_status
+    assert result.enrichment_status == "not requested"
     assert len(calls) == 1
     assert calls[0].url.path == "/ws/2/recording"
     assert dict(calls[0].url.params) == {
