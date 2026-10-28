@@ -27,6 +27,9 @@ export default function App({ api = apiDefault }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [sources, setSources] = useState(null);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [spotifySetup, setSpotifySetup] = useState(null);
+  const [spotifyUrl, setSpotifyUrl] = useState('');
+  const [replaceCredentials, setReplaceCredentials] = useState(false);
   const previewRef = useRef(null);
   const pending = useRef(false);
 
@@ -37,6 +40,18 @@ export default function App({ api = apiDefault }) {
     }).catch((e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
   }, [api, connectionAttempt]);
+
+  useEffect(() => {
+    if (spotifySetup?.status !== 'pending') return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const status = await api.get('/api/spotify/connect');
+        setSpotifySetup(status);
+        if (status.status !== 'pending') setSpotifyUrl('');
+      } catch { setError('Could not check Spotify connection status.'); }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [api, spotifySetup?.status]);
 
   async function run(fn) {
     if (pending.current) return;
@@ -67,11 +82,34 @@ export default function App({ api = apiDefault }) {
 
   return <main>
     <header><h1>TuneTrail</h1><p>Local discovery, explicit taste, and playback only after your approval.</p></header>
-    <p className="disclosure">Chat is sent to your configured hosted LLM and leaves this machine. Spotify operations require existing local credentials; sign-in is not available here.</p>
+    <p className="disclosure">Chat is sent to your configured hosted LLM and leaves this machine.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {!ready && <><p>Connecting to the local API…</p>{error && <button onClick={() => { setError(''); setConnectionAttempt((n) => n + 1); }}>Retry connection</button>}</>}
     <fieldset disabled={!ready || busy}>
+      <section><h2>Connect Spotify</h2>
+        <p>Configure your Spotify client ID and registered loopback redirect URI in .env, then restart TuneTrail. See docs/spotify-setup.md.</p>
+        <button onClick={() => run(async () => setSpotifySetup(await api.get('/api/spotify/connect')))}>Check Spotify setup</button>
+        {spotifySetup && <>
+          {!spotifySetup.configured && <p>Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env and restart TuneTrail.</p>}
+          {spotifySetup.credential_exists && <p>A local Spotify credential file exists; its validity has not been checked.</p>}
+          {spotifySetup.status === 'connected' && <p role="status">Spotify authorization completed.</p>}
+          {spotifySetup.status === 'failed' && <p role="alert">Spotify authorization failed or timed out. Existing credentials were preserved. Check the redirect URI, port, and connection, then try again.</p>}
+          {spotifySetup.status === 'cancelled' && <p>Spotify authorization cancelled.</p>}
+          {spotifySetup.status === 'pending' ? <>
+            <p>Waiting for Spotify authorization. This expires after three minutes.</p>
+            {spotifyUrl && <a href={spotifyUrl} target="_blank" rel="noopener noreferrer">Open Spotify authorization</a>}
+            <button onClick={() => run(async () => { await api.post('/api/spotify/connect/cancel', {}); setSpotifyUrl(''); setSpotifySetup(await api.get('/api/spotify/connect')); })}>Cancel Spotify connection</button>
+          </> : spotifySetup.configured && <>
+            {spotifySetup.credential_exists && <label><input type="checkbox" checked={replaceCredentials} onChange={(e) => setReplaceCredentials(e.target.checked)} /> I authorize replacing the existing Spotify credential file</label>}
+            <button disabled={spotifySetup.credential_exists && !replaceCredentials} onClick={() => run(async () => {
+              const result = await api.post('/api/spotify/connect', { replace_existing: replaceCredentials });
+              setSpotifyUrl(result.authorization_url); setReplaceCredentials(false);
+              setSpotifySetup((previous) => ({ ...previous, status: 'pending' }));
+            })}>Connect Spotify</button>
+          </>}
+        </>}
+      </section>
       <section><h2>Source status</h2>
         <p>Status describes configuration, not live availability. ReccoBeats is enabled separately for each discovery below.</p>
         <button onClick={() => run(async () => setSources(await api.get('/api/sources')))}>Show source status</button>

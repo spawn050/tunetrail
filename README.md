@@ -41,7 +41,7 @@ offline status. Chat sent to a configured hosted LLM leaves the machine.
 - If the browser cannot connect, start the API from the repository root and use
   the loopback address above. The interface can retry a failed connection.
 - Spotify authentication errors may mean missing, expired, or revoked credentials;
-  the interface cannot sign in. See [Spotify setup](docs/spotify-setup.md).
+  use Connect Spotify in the interface. See [Spotify setup](docs/spotify-setup.md).
   Failed refresh preserves the credential file. Check scopes, Premium entitlement,
   and device restrictions if access is denied.
 - Open Spotify on an active device and refresh the device list if no device is

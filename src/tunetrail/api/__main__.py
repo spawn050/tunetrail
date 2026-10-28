@@ -1,6 +1,7 @@
 """Run the local API without exposing it to the network."""
 
 import asyncio
+from contextlib import suppress
 
 import uvicorn
 
@@ -18,6 +19,10 @@ async def main() -> None:
     try:
         await server.serve()
     finally:
+        if services.connect_task and not services.connect_task.done():
+            services.connect_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await services.connect_task
         await services.http.aclose()
 
 

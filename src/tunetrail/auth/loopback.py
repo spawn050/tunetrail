@@ -49,7 +49,9 @@ class LoopbackCallbackReceiver:
         self._port = parsed.port
         self._path = parsed.path or "/"
 
-    async def receive(self, *, timeout_seconds: float = 180.0) -> AuthorizationCallback:
+    async def receive(
+        self, *, timeout_seconds: float = 180.0, ready: asyncio.Future[None] | None = None
+    ) -> AuthorizationCallback:
         """Wait for one browser redirect, then close the listener."""
         loop = asyncio.get_running_loop()
         result: asyncio.Future[AuthorizationCallback] = loop.create_future()
@@ -60,7 +62,7 @@ class LoopbackCallbackReceiver:
             callback = await self._read_callback(reader)
             if not result.done():
                 result.set_result(callback)
-            body = "TuneTrail received Spotify authorization. You can close this window."
+            body = "TuneTrail received the callback. Return to TuneTrail to check the result."
             writer.write(
                 (
                     "HTTP/1.1 200 OK\r\n"
@@ -76,6 +78,8 @@ class LoopbackCallbackReceiver:
 
         server = await asyncio.start_server(handle_connection, self._host, self._port)
         async with server:
+            if ready is not None and not ready.done():
+                ready.set_result(None)
             try:
                 return await asyncio.wait_for(result, timeout_seconds)
             except TimeoutError as error:

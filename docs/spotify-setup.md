@@ -1,8 +1,8 @@
 # Spotify developer-app setup
 
-> The local API and React interface do not provide Spotify sign-in or logout.
-> They require existing local credentials. Do not run live tests without separate
-> authorization; playback also requires explicit approval for each action.
+> The local interface supports Spotify sign-in, but not logout. Live read-only
+> evaluation and playback acceptance require separate authorization; every playback
+> action also requires explicit approval.
 
 TuneTrail is a personal Spotify controller. Spotify Premium is required for
 playback and queue control.
@@ -23,9 +23,8 @@ playback and queue control.
 
 4. Create the local, Git-ignored configuration file from the example:
 
-   ```bash
-   cp .env.example .env
-   ```
+   If `.env` does not already exist, run `cp .env.example .env`. If it exists,
+   edit it instead; do not overwrite it.
 
    Add the Client ID to `.env`:
 
@@ -47,12 +46,20 @@ TuneTrail currently requests only:
 - `user-modify-playback-state` — start playback and add a track to the queue.
 
 The redesigned runtime does not ingest playlists, top tracks, or listening history.
-Existing credentials may have different scopes; the current interface does not
-offer reauthorization. Check Spotify's current developer documentation and arrange
-authorization separately before using live features. Do not overwrite existing
-credentials without the owner's decision.
+Existing credentials may have different scopes. Check Spotify's current developer
+documentation before using live features.
+
+## Connect from the interface
+
+Start TuneTrail, open `http://127.0.0.1:8766/`, and select **Check Spotify setup**.
+If configured, select **Connect Spotify**, then **Open Spotify authorization**.
+Sign in and approve the requested scopes on Spotify; return to TuneTrail to see the
+result. The local callback listener times out after three minutes. If a credential
+file already exists, replacement requires the explicit checkbox. If it changes while
+authorization is in progress, TuneTrail preserves it and reports a failure. A
+successful sign-in does not verify playback or imply provider-policy clearance.
 
 On success, Spotify tokens are stored at `~/.config/tunetrail/auth.json` with
 owner-only (`0600`) permissions. There is currently no logout control in the
 interface. Failed token refresh preserves the existing credential file. Ask the
-owner before removing or replacing it.
+owner before removing it. The interface asks for confirmation before replacement.

@@ -9,10 +9,10 @@ a separate frontend origin; see `docs/phase-4u-api.md` for the security boundary
 
 Chat uses the configured hosted LLM and leaves the machine. Clear lasting chat
 preferences are saved immediately; ambiguous interpretations require clarification.
-Raw chat is not persisted by this service. Spotify operations require existing local
-credentials and client configuration: there is **no sign-in endpoint or interface**.
-The historical Spotify setup guide does not provide a working sign-in workflow for
-this version. Missing credentials or provider failures are surfaced as errors.
+Raw chat is not persisted by this service. Spotify operations require client
+configuration and local credentials. Use Connect Spotify in the interface to
+authorize; see `docs/spotify-setup.md`. Missing credentials or provider failures are
+surfaced as errors.
 
 Spotify artist and track searches are read-only and displayed separately. They are
 not used as discovery seeds or feedback identities. Independent discovery requires

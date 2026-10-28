@@ -37,6 +37,19 @@ async function discover(user) {
 }
 
 describe('local interface', () => {
+  it('requires confirmation before replacing Spotify credentials', async () => {
+    const user = userEvent.setup(); const api = mockApi();
+    const originalGet = api.get; const originalPost = api.post;
+    api.get = vi.fn((path) => path === '/api/spotify/connect' ? Promise.resolve({ configured: true, credential_exists: true, status: 'idle' }) : originalGet(path));
+    api.post = vi.fn((path, body) => path === '/api/spotify/connect' ? Promise.resolve({ authorization_url: 'https://accounts.spotify.com/authorize?state=test' }) : originalPost(path, body));
+    render(<App api={api} />); await screen.findByText('No explicit preferences yet.');
+    await user.click(screen.getByRole('button', { name: 'Check Spotify setup' }));
+    expect(await screen.findByRole('button', { name: 'Connect Spotify' })).toBeDisabled();
+    await user.click(screen.getByLabelText('I authorize replacing the existing Spotify credential file'));
+    await user.click(screen.getByRole('button', { name: 'Connect Spotify' }));
+    expect(await screen.findByRole('link', { name: 'Open Spotify authorization' })).toHaveAttribute('href', 'https://accounts.spotify.com/authorize?state=test');
+    expect(api.post).toHaveBeenCalledWith('/api/spotify/connect', { replace_existing: true });
+  });
   it('shows source configuration without implying live availability', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
     await screen.findByText('No explicit preferences yet.');

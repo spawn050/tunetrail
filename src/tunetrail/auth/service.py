@@ -1,6 +1,6 @@
 """Spotify OAuth exchange, refresh, and logout operations."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import httpx
@@ -68,14 +68,18 @@ class SpotifyAuthenticator:
         return await self.exchange_callback(session, callback)
 
     async def exchange_callback(
-        self, session: PkceSession, callback: AuthorizationCallback
+        self,
+        session: PkceSession,
+        callback: AuthorizationCallback,
+        *,
+        before_save: Callable[[], None] | None = None,
     ) -> OAuthToken:
         """Validate a callback's state and exchange its code for an OAuth token."""
+        if callback.state != session.state:
+            raise SpotifyStateMismatchError("Spotify authorization state did not match the request")
         if callback.error is not None:
             description = callback.error_description or callback.error
             raise SpotifyAuthorizationDeniedError(description)
-        if callback.state != session.state:
-            raise SpotifyStateMismatchError("Spotify authorization state did not match the request")
         if callback.code is None:
             raise SpotifyAuthorizationError(
                 "Spotify callback did not include an authorization code"
@@ -87,7 +91,8 @@ class SpotifyAuthenticator:
                 "redirect_uri": self._redirect_uri,
                 "client_id": self._client_id,
                 "code_verifier": session.code_verifier,
-            }
+            },
+            before_save=before_save,
         )
 
     async def access_token(self) -> str:
@@ -124,7 +129,11 @@ class SpotifyAuthenticator:
         await self._credentials.clear()
 
     async def _request_token(
-        self, form: Mapping[str, str], *, refresh_token: str | None = None
+        self,
+        form: Mapping[str, str],
+        *,
+        refresh_token: str | None = None,
+        before_save: Callable[[], None] | None = None,
     ) -> OAuthToken:
         """Request, validate, and securely save an OAuth token response."""
         response = await self._http_client.post(f"{self._accounts_url}/api/token", data=form)
@@ -139,6 +148,8 @@ class SpotifyAuthenticator:
             token = OAuthToken.from_spotify_response(payload, refresh_token=refresh_token)
         except ValueError as error:
             raise SpotifyAuthorizationError(str(error)) from error
+        if before_save is not None:
+            before_save()
         await self._credentials.save_token(token)
         return token
 

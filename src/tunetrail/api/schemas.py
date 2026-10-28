@@ -18,6 +18,10 @@ class ChatInput(Input):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class SpotifyConnectInput(Input):
+    replace_existing: bool = Field(default=False, strict=True)
+
+
 class PreferenceInput(Input):
     subject: PreferenceSubject
     name: str = Field(min_length=1, max_length=200)

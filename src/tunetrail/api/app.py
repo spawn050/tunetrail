@@ -1,8 +1,10 @@
 """Local API; all provider state and playback proposals stay on the server."""
 
 import asyncio
+import hashlib
 import secrets
 import time
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,8 +23,10 @@ from tunetrail.api.schemas import (
     PreviewInput,
     ProposalInput,
     ResetInput,
+    SpotifyConnectInput,
 )
 from tunetrail.api.security import LocalSecurityMiddleware
+from tunetrail.auth.loopback import LoopbackCallbackReceiver
 from tunetrail.auth.service import SpotifyAuthenticator, SpotifyAuthorizationError
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
@@ -69,6 +73,10 @@ class Services:
 
     def __init__(self, settings: Settings, database: Path, credentials: Path) -> None:
         self.settings = settings
+        self.credentials = credentials
+        self.connect_lock = asyncio.Lock()
+        self.connect_task: asyncio.Task[None] | None = None
+        self.connect_status = "idle"
         self.profile = ExplicitProfileService(SQLitePersonalizationStore(database))
         self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.auth = SpotifyAuthenticator(
@@ -151,6 +159,82 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 else "Check hosted LLM configuration; availability not checked."
             ),
         }
+
+    def credential_digest() -> bytes | None:
+        try:
+            return hashlib.sha256(services.credentials.read_bytes()).digest()
+        except FileNotFoundError:
+            return None
+
+    @app.get("/api/spotify/connect")
+    async def spotify_connect_status() -> dict[str, object]:
+        return {
+            "configured": bool(services.settings.spotify_client_id),
+            "credential_exists": services.credentials.exists(),
+            "status": services.connect_status,
+        }
+
+    @app.post("/api/spotify/connect")
+    async def spotify_connect(body: SpotifyConnectInput) -> dict[str, str]:
+        async with services.connect_lock:
+            if not services.settings.spotify_client_id:
+                raise HTTPException(
+                    400, "Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env and restart TuneTrail."
+                )
+            if services.connect_task and not services.connect_task.done():
+                raise HTTPException(409, "Spotify connection is already in progress.")
+            original = credential_digest()
+            if original is not None and not body.replace_existing:
+                raise HTTPException(
+                    409, "Existing Spotify credentials require explicit replacement confirmation."
+                )
+            try:
+                receiver = LoopbackCallbackReceiver(services.settings.spotify_redirect_uri)
+            except ValueError as error:
+                raise HTTPException(
+                    400, "Invalid Spotify loopback redirect URI in configuration."
+                ) from error
+            session, url = services.auth.begin_authorization()
+            ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            services.connect_status = "pending"
+
+            async def complete() -> None:
+                try:
+                    callback = await receiver.receive(ready=ready)
+
+                    def check_unchanged() -> None:
+                        if credential_digest() != original:
+                            raise SpotifyAuthorizationError(
+                                "Credentials changed during authorization"
+                            )
+
+                    await services.auth.exchange_callback(
+                        session, callback, before_save=check_unchanged
+                    )
+                    services.connect_status = "connected"
+                except asyncio.CancelledError:
+                    services.connect_status = "cancelled"
+                    raise
+                except Exception:
+                    services.connect_status = "failed"
+
+            task = asyncio.create_task(complete())
+            services.connect_task = task
+            await asyncio.wait({ready, task}, return_when=asyncio.FIRST_COMPLETED)
+            if not ready.done():
+                raise HTTPException(
+                    503, "Could not start Spotify callback listener. Check the port and try again."
+                )
+            return {"authorization_url": url}
+
+    @app.post("/api/spotify/connect/cancel")
+    async def spotify_connect_cancel() -> dict[str, bool]:
+        async with services.connect_lock:
+            if services.connect_task and not services.connect_task.done():
+                services.connect_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await services.connect_task
+            return {"cancelled": True}
 
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
