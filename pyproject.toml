@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tunetrail"
 version = "0.1.0"
-description = "A personal, terminal-first Spotify controller."
+description = "A local, personal music discovery application."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -17,7 +17,6 @@ dependencies = [
   "langgraph>=0.3,<2",
   "pydantic>=2.10,<3",
   "python-dotenv>=1.0,<2",
-  "textual>=1,<2",
 ]
 
 [project.optional-dependencies]
@@ -28,9 +27,6 @@ dev = [
   "respx>=0.22,<1",
   "ruff>=0.9,<1",
 ]
-
-[project.scripts]
-tunetrail = "tunetrail.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tunetrail"]
