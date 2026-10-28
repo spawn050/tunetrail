@@ -90,3 +90,26 @@ def test_incompatible_database_is_not_replaced(tmp_path: Path) -> None:
     with pytest.raises(IncompatibleProfileError):
         Services(Settings(), database, tmp_path / "auth")
     assert database.read_bytes() == original
+
+
+async def test_frontend_assets_share_origin_protection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tunetrail.api.app as api_app
+
+    dist = tmp_path / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<h1>TuneTrail</h1>")
+    (dist / "assets" / "app.js").write_text("console.log('local')")
+    monkeypatch.setattr(api_app, "__file__", str(tmp_path / "src" / "tunetrail" / "api" / "app.py"))
+    services = Services(Settings(), tmp_path / "db", tmp_path / "auth")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        assert (await client.get("/")).status_code == 200
+        assert (await client.get("/assets/app.js")).status_code == 200
+        assert (await client.get("/", headers={"origin": "http://evil.test"})).status_code == 403
+        assert (
+            await client.get("/assets/app.js", headers={"host": "evil.test:8766"})
+        ).status_code == 403
+    await services.http.aclose()

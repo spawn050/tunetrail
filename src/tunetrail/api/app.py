@@ -9,7 +9,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from tunetrail.api.schemas import (
     ApprovalInput,
@@ -25,7 +26,12 @@ from tunetrail.api.security import LocalSecurityMiddleware
 from tunetrail.auth.service import SpotifyAuthenticator, SpotifyAuthorizationError
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
-from tunetrail.domain.models import ExplicitPreference, PlaybackAction, PreferenceSource
+from tunetrail.domain.models import (
+    CatalogItemKind,
+    ExplicitPreference,
+    PlaybackAction,
+    PreferenceSource,
+)
 from tunetrail.llm.factory import OpenRouterLLMFactory
 from tunetrail.musicbrainz.client import MusicBrainzClient
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
@@ -165,6 +171,15 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
     async def search(q: str = Query(min_length=1, max_length=200)) -> object:
         return await services.spotify.search_tracks(q, limit=10)
 
+    @app.get("/api/catalog-search")
+    async def catalog_search(
+        q: str = Query(min_length=1, max_length=200),
+        kind: CatalogItemKind = CatalogItemKind.TRACK,
+    ) -> object:
+        if kind not in (CatalogItemKind.TRACK, CatalogItemKind.ARTIST):
+            raise HTTPException(400, "Only track and artist search are supported")
+        return await services.spotify.search_catalog(q, kind=kind, limit=10)
+
     @app.get("/api/devices")
     async def devices() -> object:
         return await services.spotify.devices()
@@ -237,5 +252,14 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
         services.proposals.pop(body.proposal_id, None)
         services.spotify.approvals.cancel(body.proposal_id)
         return {"cancelled": True}
+
+    # The frontend is built locally, then served from the API's protected origin.
+    frontend = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    if (frontend / "index.html").is_file() and (frontend / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
+
+        @app.get("/", include_in_schema=False)
+        async def index() -> FileResponse:
+            return FileResponse(frontend / "index.html")
 
     return app

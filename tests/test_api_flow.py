@@ -40,6 +40,39 @@ class Parser:
 
 
 @respx.mock
+async def test_catalog_search_is_read_only_and_limited_to_artist_and_track(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    route = respx.get("https://api.example/v1/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "artists": {"items": [{"id": "abc", "uri": "spotify:artist:abc", "name": "Artist"}]}
+            },
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        response = await client.get("/api/catalog-search", params={"q": "Artist", "kind": "artist"})
+        assert response.status_code == 200
+        assert response.json()[0]["title"] == "Artist"
+        assert route.called
+        assert (
+            await client.get("/api/catalog-search", params={"q": "x", "kind": "playlist"})
+        ).status_code == 400
+    await services.http.aclose()
+
+
+@respx.mock
 async def test_chat_discovery_preview_and_approved_playback(tmp_path: Path) -> None:
     settings = Settings(spotify_api_url="https://api.example/v1")
     services = Services(settings, tmp_path / "db", tmp_path / "auth")
