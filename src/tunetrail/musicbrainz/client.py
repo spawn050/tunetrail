@@ -11,6 +11,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 from pydantic import ValidationError
@@ -127,6 +128,38 @@ class MusicBrainzClient:
         """Fetch a canonical artist and aliases."""
         payload = await self._get(f"artist/{quote(mbid, safe='')}", {"inc": "aliases"})
         return _artist(payload)
+
+    async def browse_artist_recordings(self, artist_id: UUID, *, limit: int) -> list[Recording]:
+        """Browse one bounded page linked to an independently identified artist."""
+        if not 1 <= limit <= 20:
+            raise ValueError("Recording browse limit must be between 1 and 20")
+        payload = await self._get(
+            "recording",
+            {"artist": str(artist_id), "limit": str(limit), "inc": "artist-credits"},
+        )
+        items = payload.get("recordings")
+        count = payload.get("recording-count")
+        offset = payload.get("recording-offset")
+        if not isinstance(items, list):
+            raise MusicBrainzError("MusicBrainz returned invalid browse results.")
+        item_count = len(cast(list[object], items))
+        if (
+            item_count > limit
+            or type(count) is not int
+            or count < item_count
+            or type(offset) is not int
+            or offset != 0
+        ):
+            raise MusicBrainzError("MusicBrainz returned invalid browse results.")
+        return _recordings(payload)
+
+    async def recording(self, recording_id: UUID) -> Recording:
+        """Look up an independently identified recording by MusicBrainz ID."""
+        payload = await self._get(f"recording/{recording_id}", {"inc": "artist-credits"})
+        recordings = _recordings({"recordings": [payload]})
+        if len(recordings) != 1 or recordings[0].id.lower() != str(recording_id):
+            raise MusicBrainzError("MusicBrainz returned an inconsistent recording.")
+        return recordings[0]
 
     async def _get(
         self, path: str, params: dict[str, str], *, allow_not_found: bool = False
