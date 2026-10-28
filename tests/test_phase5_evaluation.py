@@ -1,6 +1,7 @@
 """Fixed synthetic evaluation; counts are regression evidence, not accuracy estimates."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from time import perf_counter
 from uuid import UUID
@@ -117,3 +118,29 @@ async def test_synthetic_discovery_ranking_and_preview_metrics() -> None:
         f"distinct primary artists={distinct_artists}/{len(ranks.candidates)}; "
         f"mocked preview latency={elapsed_ms:.3f} ms"
     )
+
+
+async def test_unsupported_constraints_and_conflicting_identity_block_approval() -> None:
+    """A plausible match is not approvable when a hard constraint cannot be verified."""
+    discovery = await IndependentDiscovery(SyntheticSource()).discover(
+        [IndependentSeed(SeedKind.RECORDING, UUID(int=1))], limit=1
+    )
+    candidate = discovery.candidates[0]
+    item = EnrichedCandidate(candidate, None, "unavailable")
+    ranks = rank_candidates([item], [], ListeningIntent(year_start=2000))
+    assert ranks.unsupported == ("year: independent release year unavailable",)
+    preview = await build_preview(
+        ranks, SyntheticSpotify(), PlayerApprovals(), action=PlaybackAction.PLAY_NOW
+    )
+    assert len(preview.matches) == 1
+    assert preview.proposal_id is None
+    assert any("year" in issue for issue in preview.issues)
+
+    conflict = replace(item, candidate=replace(candidate, title="Conflicting title"))
+    ranks = rank_candidates([item, conflict], [], ListeningIntent())
+    assert ranks.candidates == ()
+    assert "conflicting independent candidates share a recording ID" in ranks.unsupported
+    preview = await build_preview(
+        ranks, SyntheticSpotify(), PlayerApprovals(), action=PlaybackAction.PLAY_NOW
+    )
+    assert preview.proposal_id is None and not preview.matches
