@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import isfinite
 
 from tunetrail.domain.models import ExplicitPreference, ListeningIntent, PreferenceSubject
 from tunetrail.recommendation.independent_discovery import EnrichedCandidate
@@ -77,7 +78,12 @@ def rank_candidates(
                 and item.features.source == "reccobeats"
             ):
                 value = dict(item.features.values).get(pref.name.casefold())
-                if value is not None and pref.name.casefold() in _UNIT_FEATURES:
+                if (
+                    value is not None
+                    and pref.name.casefold() in _UNIT_FEATURES
+                    and isfinite(value)
+                    and 0 <= value <= 1
+                ):
                     signal = round(pref.strength * (float(value) - 0.5), 4)
                     if signal:
                         signals.append((f"ReccoBeats {pref.name} preference", signal))
