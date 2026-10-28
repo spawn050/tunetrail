@@ -30,3 +30,11 @@ Existing local databases, credentials and exports are not removed by this code
 cleanup. Legacy records must remain isolated from the new explicit profile until
 the owner decides how to handle them. Chat sent to a hosted LLM leaves the machine;
 the explicit-profile service does not persist raw chat.
+
+If an existing database has an incompatible profile schema, the profile store stops
+without modifying it. Ask the owner how to handle the existing file before replacing,
+deleting, or moving data; no automatic migration is performed. Profile reset removes
+only explicit preference rows, not credentials, exports, legacy records or caches.
+Retained Spotify authentication and player modules require boundary review before
+reuse: failed token refresh currently deletes the credential file, and player methods
+do not enforce approval themselves. See `docs/phase-4r-data-flow.md`.

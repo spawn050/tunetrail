@@ -396,29 +396,29 @@ may proceed while the legacy Phase 5 and 6 evidence gates remain open. Live read
 require separate owner authorization, and playback acceptance and every playback or
 queue mutation require explicit approval. These phase gates are not policy clearance.
 
-- [ ] Map Spotify profile inputs, external requests, persistence, feedback, caches, exports, and deletion paths; identify boundary crossings.
+- [x] Map Spotify profile inputs, external requests, persistence, feedback, caches, exports, and deletion paths; identify boundary crossings.
 - [x] Define independent artist and recording identities, including uniqueness and adding MusicBrainz IDs without accidental duplicates; define source provenance, bounded retention, and profile reset.
 - [x] Replace the current JSON preference representation with an inspectable SQLite schema using explicit columns and validated constraints. Keep the schema design provisional until identity and uniqueness rules are settled.
 - [x] Store explicitly expressed preference strength on a five-point integer scale: -2 strongly dislike, -1 dislike, 0 neutral or mixed, +1 like, and +2 strongly like. Use ordinary likes/dislikes for ±1 and reserve ±2 for explicitly strong sentiment; do not invent strength.
 - [x] Save neutral or mixed feelings only when explicitly expressed; provide preference removal as a separate action, not as a meaning of zero.
-- [ ] Replace Spotify likes, top/recent listening, selected playlists, and playback observation as profile inputs with direct preferences and explicit feedback.
+- [x] Replace Spotify likes, top/recent listening, selected playlists, and playback observation as profile inputs with direct preferences and explicit feedback.
 - [x] Classify chat as current request or lasting preference with validated LLM output; immediately save clear lasting preferences without confirmation or undo, and clarify ambiguity. Do not persist raw chat.
 - [x] Store tile and survey feedback against independent identities using the same scale; skip and not-familiar are neither neutral nor negative preferences and do not overwrite existing preferences. Approvals and playback requests are not evidence of listening.
-- [ ] Treat the old architecture and its schema as obsolete: remove the requirement to migrate legacy schema or data. Inspect existing local data before changing storage; do not silently delete or replace database files, records, credentials, or exports. Decide separately how to handle any existing explicit-preference data and ask the owner before deleting or replacing existing data.
-- [ ] Provide inspectable preferences and a full profile reset, with synthetic and mocked tests of classification, persistence, reset, and data boundaries.
+- [x] Treat the old architecture and its schema as obsolete: remove the requirement to migrate legacy schema or data. Inspect existing local data before changing storage; do not silently delete or replace database files, records, credentials, or exports. Decide separately how to handle any existing explicit-preference data and ask the owner before deleting or replacing existing data.
+- [x] Provide inspectable preferences and a full profile reset, with synthetic and mocked tests of classification, persistence, reset, and data boundaries.
 
 **Phase gate:** an inspectable local profile uses the explicit strength scale without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion. Legacy-schema migration is not required.
 
-**In progress:** an isolated explicit-column preference table, structured chat parser and
-profile service have been added and tested offline. Existing incompatible databases are
-rejected without modification; their data handling remains an owner decision. The legacy TUI, entry point and
-Spotify-first orchestration have been removed; no replacement runtime exists yet.
-Legacy profile and history APIs and the Last.fm client have also been removed;
-historical database tables and records remain untouched. Remaining lower-level
-provider modules must not be assumed safe for the redesigned boundaries. See
-`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open pending boundary and
-existing-data review. A name-only identity cannot distinguish namesakes; conflicting
-MusicBrainz IDs and changed identity names require clarification rather than merging.
+**Phase 4R offline gate met:** the explicit profile, parser/service flow, isolated reset,
+and existing-data fail-safe have synthetic and mocked coverage. Incompatible databases
+are left untouched and require an owner decision; the configured path was absent when
+checked. The legacy TUI and Spotify-first profile services are removed, and no
+replacement user-facing runtime exists yet. Name-only identities cannot distinguish
+namesakes; known conflicts require clarification, with richer disambiguation deferred
+to 4S. Retained provider modules are not automatically safe: notably, Spotify player
+methods lack an approval guard and failed token refresh deletes credentials. These
+must be addressed before reuse. See `docs/phase-4r-data-flow.md`. Offline mocks do not
+prove real-world LLM accuracy, live behavior, or provider-policy clearance.
 
 ### Phase 4S — Candidate discovery and ReccoBeats enrichment
 
