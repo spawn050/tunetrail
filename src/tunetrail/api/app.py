@@ -46,7 +46,14 @@ from tunetrail.recommendation.ranking import rank_candidates
 from tunetrail.recommendation.spotify_preview import build_preview
 from tunetrail.spotify.approval import ApprovalError
 from tunetrail.spotify.client import SpotifyClient
-from tunetrail.spotify.errors import SpotifyApiError
+from tunetrail.spotify.errors import (
+    SpotifyApiError,
+    SpotifyAuthenticationError,
+    SpotifyNoActiveDeviceError,
+    SpotifyPermissionError,
+    SpotifyRateLimitError,
+    SpotifyUnavailableError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,10 +104,24 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
     @app.exception_handler(SpotifyApiError)
     @app.exception_handler(SpotifyAuthorizationError)
     @app.exception_handler(httpx.HTTPError)
-    async def spotify_error(_request: object, _error: Exception) -> JSONResponse:
-        return JSONResponse(
-            {"detail": "Provider unavailable or not authenticated"}, status_code=502
-        )
+    async def spotify_error(_request: object, error: Exception) -> JSONResponse:
+        if isinstance(error, (SpotifyAuthorizationError, SpotifyAuthenticationError)):
+            detail = "Spotify authentication failed. Check credentials and setup; existing credentials were preserved."
+        elif isinstance(error, SpotifyNoActiveDeviceError):
+            detail = (
+                "No active Spotify device. Open Spotify on a device and refresh the device list."
+            )
+        elif isinstance(error, SpotifyPermissionError):
+            detail = (
+                "Spotify denied access. Check Premium, granted scopes, and device restrictions."
+            )
+        elif isinstance(error, SpotifyRateLimitError):
+            detail = "Spotify rate limit reached. Wait before trying again."
+        elif isinstance(error, SpotifyUnavailableError):
+            detail = "Spotify resource unavailable. Check availability and try another selection."
+        else:
+            detail = "Provider or network unavailable. Check your connection and try again."
+        return JSONResponse({"detail": detail}, status_code=502)
 
     @app.exception_handler(ValueError)
     async def input_error(_request: object, _error: ValueError) -> JSONResponse:
@@ -115,15 +136,19 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
-        parser = (
-            services.parser or OpenRouterLLMFactory(services.settings).create_preference_parser()
-        )
         try:
+            parser = (
+                services.parser
+                or OpenRouterLLMFactory(services.settings).create_preference_parser()
+            )
             return await services.profile.interpret_chat(body.message, parser)
         except ValueError:
             raise
         except Exception as error:
-            raise HTTPException(502, "Chat provider unavailable") from error
+            raise HTTPException(
+                502,
+                "Chat provider failed or returned invalid output. Check configuration and try rephrasing.",
+            ) from error
 
     @app.get("/api/preferences")
     async def preferences() -> object:
