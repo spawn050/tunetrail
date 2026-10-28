@@ -70,13 +70,6 @@ class PreferenceSource(StrEnum):
     SURVEY = "survey"
 
 
-class PreferencePolarity(StrEnum):
-    """Explicit positive or negative preference, not inferred listening."""
-
-    LIKE = "like"
-    DISLIKE = "dislike"
-
-
 class ExplicitPreference(BaseModel):
     """A bounded lasting preference with independently supplied identity and provenance."""
 
@@ -89,7 +82,7 @@ class ExplicitPreference(BaseModel):
         default=None,
         pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
     )
-    polarity: PreferencePolarity
+    strength: int = Field(ge=-2, le=2, strict=True)
     source: PreferenceSource
     updated_at: AwareDatetime
 
@@ -158,7 +151,7 @@ class ChatPreference(BaseModel):
     subject: PreferenceSubject
     name: str = Field(min_length=1, max_length=200)
     artist: str | None = Field(default=None, min_length=1, max_length=200)
-    polarity: PreferencePolarity
+    strength: int = Field(ge=-2, le=2, strict=True)
 
     @model_validator(mode="after")
     def validate_identity(self) -> "ChatPreference":

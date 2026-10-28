@@ -8,7 +8,6 @@ from typing import Protocol
 from tunetrail.domain.models import (
     ChatInterpretation,
     ExplicitPreference,
-    PreferencePolarity,
     PreferenceSource,
     PreferenceSubject,
 )
@@ -31,6 +30,8 @@ class PreferenceStore(Protocol):
     async def explicit_preferences(self) -> list[ExplicitPreference]: ...
 
     async def reset_explicit_preferences(self) -> None: ...
+
+    async def remove_preference(self, preference: ExplicitPreference) -> None: ...
 
 
 class PreferenceChatParser(Protocol):
@@ -56,7 +57,7 @@ class ExplicitProfileService:
                 subject=item.subject,
                 name=item.name,
                 artist=item.artist,
-                polarity=item.polarity,
+                strength=item.strength,
                 source=PreferenceSource.CHAT,
                 updated_at=now,
             )
@@ -69,6 +70,12 @@ class ExplicitProfileService:
     async def list_preferences(self) -> list[ExplicitPreference]:
         """Inspect the independently stored profile."""
         return await self._store.explicit_preferences()
+
+    async def set_preference(self, preference: ExplicitPreference) -> None:
+        """Save a directly expressed preference, including neutral or strong sentiment."""
+        if preference.source is not PreferenceSource.DIRECT:
+            raise ValueError("Direct preference must have direct provenance")
+        await self._store.set_preferences([preference])
 
     async def record_feedback(
         self,
@@ -90,7 +97,7 @@ class ExplicitProfileService:
             name=name,
             artist=artist,
             musicbrainz_id=musicbrainz_id,
-            polarity=PreferencePolarity(response.value),
+            strength=1 if response is FeedbackResponse.LIKE else -1,
             source=source,
             updated_at=datetime.now(UTC),
         )
@@ -99,3 +106,7 @@ class ExplicitProfileService:
     async def reset(self) -> None:
         """Remove the independent profile while preserving legacy data."""
         await self._store.reset_explicit_preferences()
+
+    async def remove(self, preference: ExplicitPreference) -> None:
+        """Remove one preference; neutral is represented separately as strength zero."""
+        await self._store.remove_preference(preference)

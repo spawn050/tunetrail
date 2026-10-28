@@ -76,7 +76,7 @@ async def test_preference_parser_separates_request_and_lasting_preference() -> N
         [
             {
                 "intent": {"moods": ["calm"]},
-                "preferences": [{"subject": "artist", "name": "Artist", "polarity": "like"}],
+                "preferences": [{"subject": "artist", "name": "Artist", "strength": 2}],
             }
         ]
     )
@@ -90,7 +90,7 @@ async def test_preference_parser_retries_ambiguous_or_invalid_updates() -> None:
         [
             {
                 "clarification": "Always?",
-                "preferences": [{"subject": "genre", "name": "jazz", "polarity": "like"}],
+                "preferences": [{"subject": "genre", "name": "jazz", "strength": 1}],
             },
             {"clarification": "Do you generally like jazz?"},
         ]

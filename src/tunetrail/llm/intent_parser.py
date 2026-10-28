@@ -58,8 +58,11 @@ class StructuredIntentParser:
 _PREFERENCE_PROMPT = """Interpret the listener's message as structured JSON.
 Separate a temporary listening request (intent) from clearly expressed lasting
 preferences (preferences). A temporary request such as 'play acoustic music now'
-does not establish a lasting preference. Only store explicit lasting likes or
-dislikes; do not infer a preference from listening or a playback request. When
+does not establish a lasting preference. Only store explicit lasting preferences;
+do not infer a preference from listening or a playback request. Use strength -2 for
+explicitly strong dislike, -1 for ordinary dislike, 0 for explicitly neutral or
+mixed feelings, 1 for ordinary like, and 2 for explicitly strong like. Do not invent
+strength or treat skipping, unfamiliarity, or removal as neutral. When
 whether a preference is lasting is ambiguous, ask for clarification and return no
 preferences. A preference-only message has no intent. Use only names supplied by
 the listener; do not invent identities, Spotify references, or history. Recording
