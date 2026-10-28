@@ -88,6 +88,8 @@ class ExplicitProfileService:
         musicbrainz_id: str | None = None,
     ) -> None:
         """Save an explicit like/dislike, never interpreting a skip as taste."""
+        response = FeedbackResponse(response)
+        source = PreferenceSource(source)
         if source not in (PreferenceSource.DIRECT, PreferenceSource.TILE, PreferenceSource.SURVEY):
             raise ValueError("Feedback source must be direct, tile or survey")
         if response in (FeedbackResponse.SKIP, FeedbackResponse.NOT_FAMILIAR):

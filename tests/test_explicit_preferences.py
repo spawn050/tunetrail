@@ -3,7 +3,9 @@
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +15,7 @@ from tunetrail.domain.models import (
     PreferenceSource,
     PreferenceSubject,
 )
-from tunetrail.llm.intent_parser import StructuredPreferenceParser
+from tunetrail.llm.intent_parser import IntentParseError, StructuredPreferenceParser
 from tunetrail.persistence.sqlite_store import (
     IncompatibleProfileError,
     PreferenceIdentityConflict,
@@ -231,3 +233,115 @@ async def test_sql_constraints_and_direct_strength(tmp_path: Path) -> None:
         await service.set_preference(preference(source="survey"))
     with sqlite3.connect(path) as connection, pytest.raises(sqlite3.IntegrityError):
         connection.execute("UPDATE explicit_preference SET strength=3")
+
+
+@pytest.mark.parametrize("response", ["like", "dislike", "skip", "not_familiar"])
+async def test_feedback_string_values_are_validated(tmp_path: Path, response: str) -> None:
+    service = ExplicitProfileService(SQLitePersonalizationStore(tmp_path / "profile.sqlite3"))
+    await service.record_feedback(
+        subject=PreferenceSubject.ARTIST,
+        name="Artist",
+        response=cast(FeedbackResponse, response),
+        source=PreferenceSource.SURVEY,
+    )
+    saved = await service.list_preferences()
+    if response in ("skip", "not_familiar"):
+        assert not saved
+    else:
+        assert saved[0].strength == (1 if response == "like" else -1)
+        assert saved[0].source is PreferenceSource.SURVEY
+
+
+async def test_unknown_feedback_never_overwrites_preference(tmp_path: Path) -> None:
+    service = ExplicitProfileService(SQLitePersonalizationStore(tmp_path / "profile.sqlite3"))
+    await service.set_preference(preference(strength=0))
+    before = await service.list_preferences()
+    with pytest.raises(ValueError):
+        await service.record_feedback(
+            subject=PreferenceSubject.ARTIST,
+            name="An Artist",
+            response=cast(FeedbackResponse, "approve"),
+            source=PreferenceSource.TILE,
+        )
+    assert await service.list_preferences() == before
+
+
+def test_old_json_profile_is_rejected_without_changes(tmp_path: Path) -> None:
+    path = tmp_path / "profile.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE explicit_preference (identity_key TEXT, value_json TEXT)")
+        connection.execute("INSERT INTO explicit_preference VALUES (?, ?)", ("old", '{"x":1}'))
+    before = path.read_bytes()
+    with pytest.raises(IncompatibleProfileError):
+        SQLitePersonalizationStore(path)
+    assert path.read_bytes() == before
+
+
+async def test_reset_only_clears_explicit_preferences(tmp_path: Path) -> None:
+    path = tmp_path / "profile.sqlite3"
+    service = ExplicitProfileService(SQLitePersonalizationStore(path))
+    files = [
+        tmp_path / name for name in ("auth.json", "profile-export.json", "action-history.json")
+    ]
+    for file in files:
+        file.write_text("keep", encoding="utf-8")
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE legacy_cache (payload TEXT)")
+        connection.execute("INSERT INTO legacy_cache VALUES ('keep')")
+    await service.set_preference(preference())
+    await service.reset()
+    assert await service.list_preferences() == []
+    assert all(file.read_text(encoding="utf-8") == "keep" for file in files)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT payload FROM legacy_cache").fetchall() == [("keep",)]
+
+
+async def test_invalid_model_output_cannot_modify_profile(tmp_path: Path) -> None:
+    class Model:
+        async def ainvoke(self, input: object) -> object:
+            return {
+                "clarification": "Always?",
+                "preferences": [{"subject": "genre", "name": "jazz", "strength": 1}],
+            }
+
+    service = ExplicitProfileService(SQLitePersonalizationStore(tmp_path / "profile.sqlite3"))
+    await service.set_preference(preference())
+    before = await service.list_preferences()
+    with pytest.raises(IntentParseError):
+        await service.interpret_chat("ambiguous private text", StructuredPreferenceParser(Model()))
+    assert await service.list_preferences() == before
+
+
+async def test_profile_flow_does_not_call_http_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def unexpected_request(*args: object, **kwargs: object) -> httpx.Response:
+        raise AssertionError("The explicit profile flow must not call an HTTP provider")
+
+    class LocalModel:
+        async def ainvoke(self, input: object) -> object:
+            return {"preferences": [{"subject": "genre", "name": "jazz", "strength": 0}]}
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", unexpected_request)
+    service = ExplicitProfileService(SQLitePersonalizationStore(tmp_path / "profile.sqlite3"))
+    await service.interpret_chat(
+        "I have mixed feelings about jazz", StructuredPreferenceParser(LocalModel())
+    )
+    await service.record_feedback(
+        subject=PreferenceSubject.ARTIST,
+        name="Artist",
+        response=FeedbackResponse.LIKE,
+        source=PreferenceSource.TILE,
+    )
+    assert len(await service.list_preferences()) == 2
+    await service.reset()
+    assert not await service.list_preferences()
+
+
+async def test_profile_limit_and_batch_rollback(tmp_path: Path) -> None:
+    store = SQLitePersonalizationStore(tmp_path / "profile.sqlite3")
+    await store.set_preferences([preference(name=f"Artist {i}") for i in range(999)])
+    with pytest.raises(ValueError, match="limit"):
+        await store.set_preferences([preference(name="Last"), preference(name="Too many")])
+    saved = await store.explicit_preferences()
+    assert len(saved) == 999 and all(item.name != "Last" for item in saved)
