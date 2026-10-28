@@ -1,5 +1,10 @@
 # Spotify developer-app setup
 
+> Historical setup notes: the legacy interface and entry point have been removed.
+> The local backend is not implemented, and the scopes and sign-in instructions below
+> must be reviewed for the redesign before reuse. Do not run live tests without
+> separate authorization.
+
 TuneTrail is a personal Spotify controller. Spotify Premium is required for
 playback and queue control.
 

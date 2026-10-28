@@ -1,9 +1,12 @@
 # Phase 4R data-flow inventory
 
-This inventory describes the existing runtime and the partially implemented 4R
-foundation. It is not a claim that the runtime satisfies the redesigned boundary.
+This inventory records the removed legacy runtime and the partially implemented 4R
+foundation. The legacy TUI, entry point, graph, Spotify-derived profile/retrieval/
+ranking services and Spotify-candidate MusicBrainz enrichment were removed from
+the working tree. There is currently no runnable user-facing runtime. Lower-level
+provider and persistence code remains and must be audited before reuse.
 
-## Legacy runtime paths
+## Historical legacy runtime paths
 
 - `app.py` wires `SpotifyProfileService` into the TUI. Its refresh reads Spotify
   top artists, top tracks, recent tracks and tracks from selected playlists, then
@@ -30,7 +33,7 @@ foundation. It is not a claim that the runtime satisfies the redesigned boundary
 The new `explicit_preference` table is separate from legacy tables. Its service
 supports a bounded structured profile, chat interpretation, inspection and an
 isolated reset. The structured chat parser and service are not yet wired into the
-application; existing runtime behavior remains unchanged. Direct input, tiles and
+application; there is no current application runtime. Direct input, tiles and
 surveys still need user-facing integration. No raw chat is saved by the new service.
 
 The configured default database path was checked for existence during this pass;

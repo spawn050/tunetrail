@@ -2,7 +2,7 @@
 
 ## Vision
 
-TuneTrail is a local, personal music discovery app that turns chat and explicit feedback into personalized, reviewable Spotify queues. A React browser interface is planned as a replacement for the current terminal interface; the app is not intended for internet deployment.
+TuneTrail is a local, personal music discovery app that turns chat and explicit feedback into personalized, reviewable Spotify queues. A React browser interface and local backend are planned; the app is not intended for internet deployment.
 
 Examples:
 
@@ -40,10 +40,11 @@ provider-policy clearance is implied by this plan.
 
 ## Target Architecture
 
-This architecture is planned, not the current implementation. The existing Textual
-TUI is archived legacy code, retained without relocation for now; no new TUI
-features are planned. The existing entry point and Spotify-first flow remain legacy
-until replaced. See `docs/phase-4r-data-flow.md` for current boundary limitations.
+This architecture is planned, not the current implementation. The legacy TUI,
+entry point and Spotify-first personalization orchestration have been removed.
+There is no runnable user-facing application until the local API and React UI are
+implemented. Existing local data and credentials remain untouched; lower-level
+legacy provider and storage modules still require review before reuse.
 
 ```text
 Local React browser interface
@@ -66,7 +67,6 @@ requests leave the machine; raw chat is not persisted by the new profile service
 | Language | Python 3.12+ |
 | Frontend | React, local browser |
 | Backend | Local Python API; framework to be selected in Phase 4U |
-| Legacy interface | Textual TUI, archived and retained for reference |
 | Workflow orchestration | LangGraph |
 | Default LLM gateway | OpenRouter via `langchain-openrouter` |
 | Future direct LLMs | Anthropic and OpenAI adapters |
@@ -242,18 +242,14 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 - Spotify Premium is required for queue and playback-control APIs.
 - The project owner has Spotify Premium; this satisfies the personal-use playback prerequisite.
 - Use PKCE with a `http://127.0.0.1:<port>/callback` redirect URI.
-- Require an active device and make device selection visible in the TUI.
+- Require an active device and make device selection visible in the browser interface.
 - Respect API rate limits and `Retry-After` responses.
 - Do not rely on deprecated Spotify recommendation or audio-feature APIs.
 - Serialize related player commands and refresh state after mutations: Spotify does not guarantee execution order when queue and other player endpoints are used together.
 - Request only the scopes needed for enabled features:
   - `user-modify-playback-state` for player controls, start playback, and queue changes;
   - `user-read-playback-state` for current playback/devices;
-  - `user-read-currently-playing` for current track details;
-  - `user-top-read` for taste bootstrap;
-  - `user-read-recently-played` for repetition avoidance;
-  - `playlist-read-private` and `playlist-read-collaborative` only for opted-in playlist signals;
-  - playlist-write scopes only if save-as-playlist is implemented.
+  - additional scopes only for explicitly approved features, never for legacy taste bootstrap or passive history.
 - Treat TuneTrail as a personal/private application. Current Spotify development mode requires the app owner to remain Premium and supports only five allowlisted users for newly created apps. Extended-quota access is not a realistic public-product path for this project: Spotify currently restricts new applications to established organizations meeting high-scale requirements.
 - Playlist-item access in current development mode is limited to playlists the user owns or collaborates on. Do not design personalization around reading arbitrary public playlist contents.
 - Spotify search results are catalog discovery only. Search returns a limited page of results and must be paginated deliberately when more candidates are needed.
@@ -411,10 +407,10 @@ queue mutation require explicit approval. These phase gates are not policy clear
 **Phase gate:** an inspectable local profile uses explicit inputs without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion.
 
 **In progress:** an isolated explicit-preference table, structured chat parser and
-profile service have been added and tested offline. They are not yet wired into the
-application. The existing runtime still uses legacy Spotify-derived personalization
-and can send Spotify-derived candidate metadata to MusicBrainz. See
-`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
+profile service have been added and tested offline. The legacy TUI, entry point and
+Spotify-first orchestration have been removed; no replacement runtime exists yet.
+Remaining lower-level legacy modules must not be assumed safe for the redesigned
+boundaries. See `docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
 
 ### Phase 4S — Candidate discovery and ReccoBeats enrichment
 
@@ -458,7 +454,7 @@ and can send Spotify-derived candidate metadata to MusicBrainz. See
 - [ ] Add chat, artist/track search, clickable lasting like/dislike tiles, and clearly labelled suggested music.
 - [ ] Add optional, initially deterministic surveys with like, dislike, not familiar, and skip; do not invent catalog entries.
 - [ ] Show immediate profile updates, profile contents and reset controls, and a reviewable Spotify playback preview with explicit play/queue approval.
-- [ ] Keep the archived TUI only for reference; do not develop new TUI features. Decide its eventual removal separately.
+- [ ] Provide the React interface as the only planned UI; the legacy TUI has been removed.
 - [ ] Test the local interface and complete mocked request-to-approval flow.
 
 **Phase gate:** the local React interface supports the mocked flow from preferences to an approved playback request.
@@ -942,27 +938,20 @@ requires separate authorization and explicit approval for every mutation.
 
 ```text
 src/tunetrail/
-  app.py
   config.py
-  tui/
+  api/                     # planned local backend
   auth/
   spotify/
   llm/
-  graph/
   recommendation/
-    profile.py
-    retrieval.py
-    resolver.py
-    ranking.py
-    sources/
-      spotify.py
-      lastfm.py
-      musicbrainz.py
-      reccobeats.py
+    explicit_profile.py
+    discovery/             # planned independent discovery
+    ranking.py             # planned TuneTrail ranker
+    resolver.py            # conservative Spotify resolution
   persistence/
   domain/
-  services/
 tests/
+frontend/                  # planned React interface
 ```
 
 ## Near-Term Priorities
