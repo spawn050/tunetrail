@@ -61,3 +61,27 @@ def test_unsupported_constraints_and_duplicate_recordings() -> None:
     )
     assert len(result.candidates) == 1
     assert len(result.unsupported) == 2
+
+
+def test_dislikes_neutral_and_unknown_features() -> None:
+    result = rank_candidates(
+        [item(1, "Artist"), item(2, "Other", 0.9)],
+        [
+            pref(PreferenceSubject.ARTIST, "Artist", -2),
+            pref(PreferenceSubject.FEATURE, "energy", 2),
+            pref(PreferenceSubject.ARTIST, "Other", 0),
+        ],
+        ListeningIntent(),
+    )
+    assert [x.item.candidate.recording_id.int for x in result.candidates] == [2, 1]
+    assert result.candidates[0].score == 0.8
+    assert result.candidates[1].score == -2
+    assert all("energy" not in name for name, _ in result.candidates[1].signals)
+
+
+def test_conflicting_duplicate_identity_is_not_order_dependent() -> None:
+    items = [item(1, "First"), item(1, "Second"), item(2, "Other")]
+    first = rank_candidates(items, [], ListeningIntent())
+    assert first == rank_candidates(list(reversed(items)), [], ListeningIntent())
+    assert len(first.candidates) == 1
+    assert "conflicting" in first.unsupported[0]

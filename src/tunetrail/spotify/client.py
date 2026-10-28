@@ -115,7 +115,12 @@ class SpotifyClient:
             raise SpotifyPayloadError("Spotify search response was malformed")
         rows = cast(list[object], items)
         total = page.get("total")
-        if type(total) is not int or total != len(rows):
+        if (
+            type(total) is not int
+            or total != len(rows)
+            or page.get("next") is not None
+            or page.get("offset", 0) != 0
+        ):
             return []  # A truncated result set cannot establish uniqueness.
         results: list[Candidate] = []
         for value in rows:

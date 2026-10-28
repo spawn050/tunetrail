@@ -51,13 +51,21 @@ def rank_candidates(
         for p in preferences
     ):
         unsupported.append("some feature preferences are unsupported")
-    seen: set[object] = set()
-    pending: list[tuple[EnrichedCandidate, list[tuple[str, float]]]] = []
+    unique: dict[object, EnrichedCandidate] = {}
+    conflicts: set[object] = set()
     for item in candidates:
+        identifier = item.candidate.recording_id
+        if identifier in unique and unique[identifier] != item:
+            conflicts.add(identifier)
+        else:
+            unique[identifier] = item
+    if conflicts:
+        unsupported.append("conflicting independent candidates share a recording ID")
+    pending: list[tuple[EnrichedCandidate, list[tuple[str, float]]]] = []
+    for identifier, item in unique.items():
         candidate = item.candidate
-        if candidate.source != "musicbrainz" or candidate.recording_id in seen:
+        if candidate.source != "musicbrainz" or identifier in conflicts:
             continue
-        seen.add(candidate.recording_id)
         signals: list[tuple[str, float]] = []
         for pref in preferences:
             if not pref.strength:

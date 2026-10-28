@@ -12,7 +12,6 @@ from tunetrail.domain.models import Candidate, CandidateSource, PlaybackAction
 from tunetrail.recommendation.ranking import RankedCandidate, RankingResult
 from tunetrail.spotify.approval import PlayerAction, PlayerApprovals
 from tunetrail.spotify.errors import SpotifyApiError
-from tunetrail.spotify.models import SpotifyPayloadError
 
 
 class PlayableSearch(Protocol):
@@ -65,7 +64,7 @@ async def build_preview(
             results = await spotify.search_playable_tracks(query, limit=10)
         except (
             SpotifyApiError,
-            SpotifyPayloadError,
+            ValueError,
             SpotifyAuthorizationError,
             httpx.HTTPError,
             TimeoutError,
