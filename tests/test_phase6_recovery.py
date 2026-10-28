@@ -40,3 +40,18 @@ async def test_safe_recovery_messages(tmp_path: Path, error: Exception, expected
         assert expected in response.json()["detail"]
         assert "secret" not in response.text
     await services.http.aclose()
+
+
+async def test_source_status_is_configuration_only(tmp_path: Path) -> None:
+    services = Services(
+        Settings(openrouter_api_key="private-key"), tmp_path / "db", tmp_path / "auth"
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        response = await client.get("/api/sources")
+        assert response.status_code == 200
+        assert "off by default" in response.json()["reccobeats"]
+        assert "availability not checked" in response.json()["chat"]
+        assert "private-key" not in response.text
+    await services.http.aclose()

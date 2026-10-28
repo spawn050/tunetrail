@@ -12,6 +12,7 @@ function mockApi() {
     start: vi.fn(async () => ({ token: 'local-token' })),
     get: vi.fn(async (path) => {
       if (path === '/api/preferences') return profile;
+      if (path === '/api/sources') return { reccobeats: 'Optional per discovery; off by default. Availability not checked.' };
       if (path === '/api/devices') return [{ id: 'device', name: 'Desk', is_active: true }];
       if (path.startsWith('/api/catalog-search')) return [{ title: 'Spotify result', spotify_uri: 'spotify:track:a' }];
       throw new Error('Unexpected GET');
@@ -36,6 +37,13 @@ async function discover(user) {
 }
 
 describe('local interface', () => {
+  it('shows source configuration without implying live availability', async () => {
+    const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
+    await screen.findByText('No explicit preferences yet.');
+    await user.click(screen.getByRole('button', { name: 'Show source status' }));
+    expect(await screen.findByText(/Optional per discovery; off by default/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Request provisional ReccoBeats estimates')).not.toBeChecked();
+  });
   it('moves from chat and independent discovery to explicit single-use approval', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
     await screen.findByText('No explicit preferences yet.');

@@ -25,6 +25,8 @@ export default function App({ api = apiDefault }) {
   const [action, setAction] = useState('play_now');
   const [preview, setPreview] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [sources, setSources] = useState(null);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const previewRef = useRef(null);
   const pending = useRef(false);
 
@@ -34,7 +36,7 @@ export default function App({ api = apiDefault }) {
       if (alive) { setProfile(data); setReady(true); }
     }).catch((e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
-  }, [api]);
+  }, [api, connectionAttempt]);
 
   async function run(fn) {
     if (pending.current) return;
@@ -68,8 +70,13 @@ export default function App({ api = apiDefault }) {
     <p className="disclosure">Chat is sent to your configured hosted LLM and leaves this machine. Spotify operations require existing local credentials; sign-in is not available here.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    {!ready && <p>Connecting to the local API…</p>}
+    {!ready && <><p>Connecting to the local API…</p>{error && <button onClick={() => { setError(''); setConnectionAttempt((n) => n + 1); }}>Retry connection</button>}</>}
     <fieldset disabled={!ready || busy}>
+      <section><h2>Source status</h2>
+        <p>Status describes configuration, not live availability. ReccoBeats is enabled separately for each discovery below.</p>
+        <button onClick={() => run(async () => setSources(await api.get('/api/sources')))}>Show source status</button>
+        {sources && <ul>{Object.entries(sources).map(([name, status]) => <li key={name}><strong>{name}</strong>: {status}</li>)}</ul>}
+      </section>
       <section><h2>Chat</h2>
         <form onSubmit={(e) => { e.preventDefault(); run(async () => {
           await invalidate();

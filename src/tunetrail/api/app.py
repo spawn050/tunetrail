@@ -134,6 +134,21 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
             "chat_disclosure": "Chat is sent to the configured hosted LLM and leaves this machine.",
         }
 
+    @app.get("/api/sources")
+    async def sources() -> dict[str, str]:
+        # Configuration only: do not make provider calls or expose credential state.
+        return {
+            "musicbrainz": "Used for independent discovery; availability not checked.",
+            "reccobeats": "Optional per discovery; off by default. Availability not checked.",
+            "spotify": "Used for catalog and playback; availability not checked.",
+            "chat": (
+                "OpenRouter key set; availability not checked."
+                if services.settings.llm_provider == "openrouter"
+                and services.settings.openrouter_api_key
+                else "Check hosted LLM configuration; availability not checked."
+            ),
+        }
+
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
         try:
