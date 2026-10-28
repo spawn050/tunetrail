@@ -1,0 +1,15 @@
+:root { font-family: system-ui, sans-serif; color: #e9edf4; background: #111827; line-height: 1.5; }
+main { max-width: 900px; margin: auto; padding: 1.5rem; }
+fieldset { border: 0; padding: 0; margin: 0; }
+section { background: #1f2937; border-radius: .7rem; padding: 1.2rem; margin: 1rem 0; }
+h1, h2, h3 { line-height: 1.2; }
+label { display: block; margin: .7rem 0; }
+input:not([type=checkbox]), textarea, select { display: block; box-sizing: border-box; width: 100%; max-width: 35rem; padding: .5rem; }
+textarea { min-height: 5rem; }
+button { cursor: pointer; padding: .5rem .8rem; margin: .2rem .3rem .2rem 0; }
+button:disabled { cursor: not-allowed; }
+.disclosure { border-left: .3rem solid #e5b567; padding-left: .8rem; }
+.error { color: #ffb4a9; }
+.tiles { list-style: none; padding: 0; display: grid; gap: .7rem; }
+.tiles li { background: #374151; padding: .8rem; border-radius: .4rem; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }

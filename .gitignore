@@ -228,3 +228,5 @@ state/
 cache/
 *.sqlite3
 *.sqlite3-*
+frontend/node_modules/
+frontend/dist/
