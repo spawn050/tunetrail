@@ -15,10 +15,10 @@ metrics, benchmarking, functionality, usage statistics, and user profiles.
 Section III.14 restricts ingesting Spotify Content into ML/AI models. The policy
 also requires proper attribution and links to applicable Spotify content.
 
-TuneTrail currently derives local taste signals from Spotify history and can send
-Spotify-candidate artist/title/ISRC metadata to MusicBrainz. Last.fm discovery
-may use Spotify profile artist names as similarity seeds. The planned ReccoBeats
-feature could send Spotify identifiers to that service. These flows and proposed
+The historical TuneTrail architecture derived local taste signals from Spotify
+history and could send Spotify-candidate artist/title/ISRC metadata to MusicBrainz.
+Its planned Last.fm discovery could use Spotify profile artist names as similarity
+seeds, and its earlier ReccoBeats proposal could send Spotify identifiers. These flows and proposed
 local quality metrics need policy review; a personal-use label or local storage
 alone does not establish compliance. Do not assume the roadmap's earlier privacy
 rules settle these questions. No live use or policy clearance is claimed here.
@@ -39,11 +39,11 @@ rules settle these questions. No live use or policy clearance is claimed here.
   for applicable third-party terms. Audio features and recommendation logic are
   described as ReccoBeats' own analysis, and the service is provided as-is.
 
-**Provisional no-go for runtime integration:** the data-flow/policy questions are
+**Historical provisional no-go for runtime integration:** the data-flow/policy questions were
 unresolved, the public schema shown above is incomplete, and no representative
 quality, error-rate, or latency measurements have been performed. This is not the
-roadmap's final evidence-based go/no-go decision. ReccoBeats remains unimplemented
-and disabled; no API calls or Spotify data transfers were made for this review.
+roadmap's final evidence-based go/no-go decision. At that point ReccoBeats was
+unimplemented and disabled; no API calls or Spotify data transfers were made for that review.
 
 ### Phase 4S documentation correction (2026-10-28)
 

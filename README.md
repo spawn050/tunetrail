@@ -33,8 +33,9 @@ the explicit-profile service does not persist raw chat.
 
 Phase 4S has an offline-tested, bounded MusicBrainz discovery foundation using
 independently supplied MusicBrainz IDs. It does not resolve namesakes automatically.
-ReccoBeats enrichment remains unavailable because its independent lookup and feature
-contract are not established; see `docs/phase-4s-discovery.md`.
+Optional ReccoBeats enrichment searches using independent MusicBrainz metadata and
+conservatively matches tracks; coverage and accuracy have not been tested live. See
+`docs/phase-4s-discovery.md` for data boundaries and provider limitations.
 
 If an existing database has an incompatible profile schema, the profile store stops
 without modifying it. Ask the owner how to handle the existing file before replacing,
