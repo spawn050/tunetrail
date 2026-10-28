@@ -133,7 +133,7 @@ export default function App({ api = apiDefault }) {
       <section><h2>Playback preview</h2>
         <p>Spotify Premium and an active device are required. Queue append requires one track per approval.</p>
         <button onClick={() => run(async () => setDevices(await api.get('/api/devices')))}>Refresh devices</button>
-        <label>Device <select value={device} onChange={(e) => { const value = e.target.value; changePreviewInput(() => setDevice(value)); }}><option value="">Spotify active device (may change)</option>{devices.map((d) => <option key={d.id} value={d.id}>{d.name}{d.is_active ? ' (active)' : ''}</option>)}</select></label>
+        <label>Device <select value={device} onChange={(e) => { const value = e.target.value; changePreviewInput(() => setDevice(value)); }}><option value="">Spotify active device (may change)</option>{devices.filter((d) => d.id).map((d) => <option key={d.id} value={d.id} disabled={d.is_restricted}>{d.name}{d.is_active ? ' (active)' : ''}{d.is_restricted ? ' (restricted)' : ''}</option>)}</select></label>
         <label>Action <select value={action} onChange={(e) => { const value = e.target.value; changePreviewInput(() => setAction(value)); }}><option value="play_now">Play now</option><option value="append_queue">Append one track</option></select></label>
         <button disabled={!discovery || !!interpretation?.clarification || !!interpretation?.intent?.clarification_needed} onClick={() => run(async () => {
           await invalidate();
