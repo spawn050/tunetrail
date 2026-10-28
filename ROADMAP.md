@@ -409,8 +409,10 @@ queue mutation require explicit approval. These phase gates are not policy clear
 **In progress:** an isolated explicit-preference table, structured chat parser and
 profile service have been added and tested offline. The legacy TUI, entry point and
 Spotify-first orchestration have been removed; no replacement runtime exists yet.
-Remaining lower-level legacy modules must not be assumed safe for the redesigned
-boundaries. See `docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
+Legacy profile and history APIs and the Last.fm client have also been removed;
+historical database tables and records remain untouched. Remaining lower-level
+provider modules must not be assumed safe for the redesigned boundaries. See
+`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
 
 ### Phase 4S — Candidate discovery and ReccoBeats enrichment
 

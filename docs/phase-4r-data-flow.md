@@ -4,7 +4,9 @@ This inventory records the removed legacy runtime and the partially implemented 
 foundation. The legacy TUI, entry point, graph, Spotify-derived profile/retrieval/
 ranking services and Spotify-candidate MusicBrainz enrichment were removed from
 the working tree. There is currently no runnable user-facing runtime. Lower-level
-provider and persistence code remains and must be audited before reuse.
+provider code remains and must be audited before reuse. The legacy profile, feedback,
+playlist and cache methods and the Last.fm client have since been removed. The
+explicit preference store leaves legacy database tables and records untouched.
 
 ## Historical legacy runtime paths
 
@@ -23,10 +25,9 @@ provider and persistence code remains and must be audited before reuse.
   Optional MusicBrainz enrichment receives candidates retrieved from Spotify.
   These paths do not satisfy the redesigned external-data boundary and must be
   disconnected or redesigned before the 4R runtime is considered complete.
-- `sqlite_store.py` contains legacy profile, feedback, playlist, session and source
-  cache tables. `paths.py` defines the XDG-aware database and export locations;
-  action history and credentials are separate files. Legacy export and reset
-  behavior must be reviewed during runtime integration.
+- The database contained legacy profile, feedback, playlist, session and source
+  cache tables. Existing tables remain on disk; new databases do not create them.
+  `paths.py` defines XDG-aware locations; action history and credentials are separate.
 
 ## New foundation
 
