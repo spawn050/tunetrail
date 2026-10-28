@@ -397,14 +397,17 @@ require separate owner authorization, and playback acceptance and every playback
 queue mutation require explicit approval. These phase gates are not policy clearance.
 
 - [ ] Map Spotify profile inputs, external requests, persistence, feedback, caches, exports, and deletion paths; identify boundary crossings.
-- [ ] Define independent artist and recording identities, source provenance, bounded retention, profile reset, and migration behavior.
+- [ ] Define independent artist and recording identities, including uniqueness and adding MusicBrainz IDs without accidental duplicates; define source provenance, bounded retention, and profile reset.
+- [ ] Replace the current JSON preference representation with an inspectable SQLite schema using explicit columns and validated constraints. Keep the schema design provisional until identity and uniqueness rules are settled.
+- [ ] Store explicitly expressed preference strength on a five-point integer scale: -2 strongly dislike, -1 dislike, 0 neutral or mixed, +1 like, and +2 strongly like. Use ordinary likes/dislikes for ±1 and reserve ±2 for explicitly strong sentiment; do not invent strength.
+- [ ] Save neutral or mixed feelings only when explicitly expressed; provide preference removal as a separate action, not as a meaning of zero.
 - [ ] Replace Spotify likes, top/recent listening, selected playlists, and playback observation as profile inputs with direct preferences and explicit feedback.
 - [ ] Classify chat as current request or lasting preference with validated LLM output; immediately save clear lasting preferences without confirmation or undo, and clarify ambiguity. Do not persist raw chat.
-- [ ] Store tile and survey likes/dislikes against independent identities; skip and not-familiar are not dislikes. Approvals and playback requests are not evidence of listening.
-- [ ] Check whether legacy local data exists; preserve it and isolate Spotify-derived records from the new profile. Ask the owner before deleting or replacing any existing data.
+- [ ] Store tile and survey feedback against independent identities using the same scale; skip and not-familiar are neither neutral nor negative preferences and do not overwrite existing preferences. Approvals and playback requests are not evidence of listening.
+- [ ] Treat the old architecture and its schema as obsolete: remove the requirement to migrate legacy schema or data. Inspect existing local data before changing storage; do not silently delete or replace database files, records, credentials, or exports. Decide separately how to handle any existing explicit-preference data and ask the owner before deleting or replacing existing data.
 - [ ] Provide inspectable preferences and a full profile reset, with synthetic and mocked tests of classification, persistence, reset, and data boundaries.
 
-**Phase gate:** an inspectable local profile uses explicit inputs without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion.
+**Phase gate:** an inspectable local profile uses the explicit strength scale without Spotify-derived profile signals, and existing local-data handling is decided without unauthorized deletion. Legacy-schema migration is not required.
 
 **In progress:** an isolated explicit-preference table, structured chat parser and
 profile service have been added and tested offline. The legacy TUI, entry point and
@@ -412,7 +415,10 @@ Spotify-first orchestration have been removed; no replacement runtime exists yet
 Legacy profile and history APIs and the Last.fm client have also been removed;
 historical database tables and records remain untouched. Remaining lower-level
 provider modules must not be assumed safe for the redesigned boundaries. See
-`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open.
+`docs/phase-4r-data-flow.md`; the Phase 4R gate remains open. The current code still
+uses binary polarity and JSON storage; the strength scale and explicit-column schema
+above are planned changes, not yet implemented. Historical migration definitions
+remain in the code for now but no longer need to be retained for compatibility.
 
 ### Phase 4S — Candidate discovery and ReccoBeats enrichment
 
