@@ -36,6 +36,38 @@ local build from the checkout, not from an installed wheel. The API binds to
 [API guide](docs/phase-4u-api.md) for origin protections, limitations, and
 offline status. Chat sent to a configured hosted LLM leaves the machine.
 
+## Troubleshooting and data controls
+
+- If the browser cannot connect, start the API from the repository root and use
+  the loopback address above. The interface can retry a failed connection.
+- Spotify authentication errors may mean missing, expired, or revoked credentials;
+  the interface cannot sign in. See [Spotify setup](docs/spotify-setup.md).
+  Failed refresh preserves the credential file. Check scopes, Premium entitlement,
+  and device restrictions if access is denied.
+- Open Spotify on an active device and refresh the device list if no device is
+  available. Rate limits and network failures may require waiting or retrying a
+  read. After a failed playback request, inspect Spotify first: the request might
+  have succeeded. A fresh preview and explicit approval are required for another.
+- Chat needs a configured hosted provider and may fail on invalid model output;
+  check configuration or rephrase. Chat leaves the machine, but raw chat is not
+  persisted by the explicit-profile service.
+- Source status reports configuration, not a live health check. MusicBrainz needs
+  independently obtained IDs. ReccoBeats is optional per discovery and off by
+  default; an outage or missing features can result in fewer suggestions.
+- Inspect and remove individual explicit preferences in Profile; reset requires a
+  confirmation and removes only explicit preference rows. There is no profile
+  export or credential cleanup control in the redesigned interface. Do not delete,
+  move, or replace legacy data, databases, credentials, or exports without the
+  owner's separate decision. Incompatible databases are left untouched.
+
+## Contributing
+
+Use synthetic data and mocked providers for tests. Run the development checks above
+and frontend tests/build before proposing a change. Preserve the independent-input
+boundary, local-only API, and single-use approval before player mutations. Document
+limitations honestly; live provider and playback acceptance need separate owner
+authorization. No local usage metrics are collected by the redesigned workflow.
+
 The existing Spotify authentication and provider modules are retained for review
 and possible reuse. Their presence does not mean provider policies have been cleared.
 Live read-only tests require separate

@@ -528,15 +528,26 @@ or policy clearance.
 
 **Goal:** make the redesigned local application maintainable and clear for personal use.
 
-- [ ] Add clear recovery for expired credentials, missing scopes or devices, rate limits, invalid LLM output, network failures, and optional-source outages.
-- [ ] Provide source status and appropriate enable/disable controls without bypassing data boundaries.
-- [ ] Review profile inspection, reset, export, credential cleanup, and any deletion controls; preserve legacy data until its owner authorizes its handling.
-- [ ] Document local setup, Spotify developer configuration, hosted-LLM data disclosure, privacy, troubleshooting, and contribution procedures.
+- [x] Add clear recovery for expired credentials, missing scopes or devices, rate limits, invalid LLM output, network failures, and optional-source outages.
+- [x] Provide source status and appropriate enable/disable controls without bypassing data boundaries.
+- [x] Review profile inspection, reset, export, credential cleanup, and any deletion controls; preserve legacy data until its owner authorizes its handling.
+- [x] Document local setup, Spotify developer configuration, hosted-LLM data disclosure, privacy, troubleshooting, and contribution procedures.
 - [ ] Test installation and startup on a clean machine, with the backend bound locally and credentials kept server-side.
-- [ ] Evaluate any optional local metrics for necessity and privacy; do not represent approvals, skips, or playback requests as proof of listening or preference.
+- [x] Evaluate any optional local metrics for necessity and privacy; do not represent approvals, skips, or playback requests as proof of listening or preference.
 
 **Phase gate:** documented local setup and offline recovery checks pass, with data
 controls and unresolved limitations accurately described.
+
+**Phase 6 offline progress:** provider errors now give safe recovery guidance, the
+interface can retry its local connection, and a configuration-only source status
+reports no live health claims. ReccoBeats remains opt-in per discovery. Profile
+inspection and explicit-only reset remain available; export, credential cleanup and
+Spotify sign-in are not available in the redesigned interface. No new metrics were
+added. Offline tests, browser regression, frontend build/audit, and Python quality
+checks passed. A fresh Python environment and isolated XDG directories successfully
+started the local API and built interface on this machine using cached dependencies;
+this is not a clean-machine installation test, which remains open. No provider or
+playback acceptance was performed. Phase 5 independent review remains open.
 
 ### Phase 7 — Deferred future extensions
 
