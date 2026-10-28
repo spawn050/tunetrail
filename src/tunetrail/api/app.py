@@ -312,6 +312,20 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
     async def devices() -> object:
         return await services.spotify.devices()
 
+    @app.get("/api/now-playing")
+    async def now_playing() -> dict[str, object] | None:
+        """Return only the display fields needed by the local player view."""
+        playback = await services.spotify.current_playback()
+        if playback is None or playback.track is None:
+            return None
+        return {
+            "title": playback.track.title,
+            "artists": playback.track.artists,
+            "duration_ms": playback.track.duration_ms,
+            "progress_ms": playback.progress_ms,
+            "is_playing": playback.is_playing,
+        }
+
     @app.post("/api/discovery")
     async def discover(body: DiscoveryInput) -> object:
         async with services.discovery_lock:

@@ -40,6 +40,48 @@ class Parser:
 
 
 @respx.mock
+async def test_now_playing_is_minimal_and_read_only(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    route = respx.get("https://api.example/v1/me/player").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "item": {**track_payload(), "type": "track"},
+                "is_playing": True,
+                "progress_ms": 1000,
+            },
+        )
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        response = await client.get("/api/now-playing")
+        assert response.status_code == 200
+        assert set(response.json()) == {
+            "title",
+            "artists",
+            "duration_ms",
+            "progress_ms",
+            "is_playing",
+        }
+        assert response.json()["progress_ms"] == 1000
+        route.mock(return_value=httpx.Response(204))
+        assert (await client.get("/api/now-playing")).json() is None
+        route.mock(return_value=httpx.Response(200, json={"item": {"type": "episode"}}))
+        assert (await client.get("/api/now-playing")).json() is None
+    await services.http.aclose()
+
+
+@respx.mock
 async def test_catalog_search_is_read_only_and_limited_to_artist_and_track(tmp_path: Path) -> None:
     services = Services(
         Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"

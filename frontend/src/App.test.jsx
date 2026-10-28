@@ -12,6 +12,7 @@ function mockApi() {
     start: vi.fn(async () => ({ token: 'local-token' })),
     get: vi.fn(async (path) => {
       if (path === '/api/preferences') return profile;
+      if (path === '/api/now-playing') return null;
       if (path === '/api/sources') return { reccobeats: 'Optional per discovery; off by default. Availability not checked.' };
       if (path === '/api/devices') return [{ id: 'device', name: 'Desk', is_active: true }];
       if (path.startsWith('/api/catalog-search')) return [{ title: 'Spotify result', spotify_uri: 'spotify:track:a' }];
@@ -36,13 +37,19 @@ async function discover(user) {
   await screen.findByText('Suggested music (MusicBrainz)');
 }
 
+async function openSettings(user) {
+  await screen.findByRole('button', { name: 'Send chat' });
+  await user.click(screen.getByText('Settings and discovery'));
+  await screen.findByText('No explicit preferences yet.');
+}
+
 describe('local interface', () => {
   it('requires confirmation before replacing Spotify credentials', async () => {
     const user = userEvent.setup(); const api = mockApi();
     const originalGet = api.get; const originalPost = api.post;
     api.get = vi.fn((path) => path === '/api/spotify/connect' ? Promise.resolve({ configured: true, credential_exists: true, status: 'idle' }) : originalGet(path));
     api.post = vi.fn((path, body) => path === '/api/spotify/connect' ? Promise.resolve({ authorization_url: 'https://accounts.spotify.com/authorize?state=test' }) : originalPost(path, body));
-    render(<App api={api} />); await screen.findByText('No explicit preferences yet.');
+    render(<App api={api} />); await openSettings(user);
     await user.click(screen.getByRole('button', { name: 'Check Spotify setup' }));
     expect(await screen.findByRole('button', { name: 'Connect Spotify' })).toBeDisabled();
     await user.click(screen.getByLabelText('I authorize replacing the existing Spotify credential file'));
@@ -52,14 +59,14 @@ describe('local interface', () => {
   });
   it('shows source configuration without implying live availability', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
-    await screen.findByText('No explicit preferences yet.');
+    await openSettings(user);
     await user.click(screen.getByRole('button', { name: 'Show source status' }));
     expect(await screen.findByText(/Optional per discovery; off by default/)).toBeInTheDocument();
     expect(screen.getByLabelText('Request provisional ReccoBeats estimates')).not.toBeChecked();
   });
   it('moves from chat and independent discovery to explicit single-use approval', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
-    await screen.findByText('No explicit preferences yet.');
+    await openSettings(user);
     await user.type(screen.getByLabelText('Request or lasting preference'), 'I like this artist');
     await user.click(screen.getByRole('button', { name: 'Send chat' }));
     await screen.findByText(/artist: Independent Artist/);
@@ -80,7 +87,7 @@ describe('local interface', () => {
 
   it('cancels preview, records survey feedback, and requires reset confirmation', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
-    await screen.findByText('No explicit preferences yet.'); await discover(user);
+    await openSettings(user); await discover(user);
     await user.click(screen.getByRole('button', { name: 'Create preview' }));
     await screen.findByText('Review before approval');
     await user.click(screen.getByRole('button', { name: 'Cancel preview' }));
@@ -103,7 +110,7 @@ describe('local interface', () => {
   it('does not retry a failed approval and warns about uncertain playback', async () => {
     const user = userEvent.setup(); const api = mockApi();
     const original = api.post; api.post = vi.fn((path, body) => path === '/api/approval' ? Promise.reject(new Error('Provider unavailable')) : original(path, body));
-    render(<App api={api} />); await screen.findByText('No explicit preferences yet.'); await discover(user);
+    render(<App api={api} />); await openSettings(user); await discover(user);
     await user.click(screen.getByRole('button', { name: 'Create preview' })); await screen.findByText('Review before approval');
     await user.click(screen.getByRole('button', { name: 'Approve play now' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('inspect Spotify playback');
@@ -112,7 +119,7 @@ describe('local interface', () => {
 
   it('keeps Spotify search separate and invalidates previews when the action changes', async () => {
     const user = userEvent.setup(); const api = mockApi(); render(<App api={api} />);
-    await screen.findByText('No explicit preferences yet.');
+    await openSettings(user);
     await user.selectOptions(screen.getByLabelText('Search type'), 'artist');
     await user.type(screen.getByLabelText('Search Spotify'), 'example');
     await user.click(screen.getByRole('button', { name: 'Search' }));
@@ -138,7 +145,7 @@ describe('local interface', () => {
       if (path === '/api/chat') return Promise.resolve({ clarification: 'Which artist?', preferences: [] });
       return original(path, body);
     });
-    render(<App api={api} />); await screen.findByText('No explicit preferences yet.');
+    render(<App api={api} />); await openSettings(user);
     await discover(user);
     await user.click(screen.getByRole('button', { name: 'Create preview' }));
     await screen.findByText('Spotify search unavailable');
@@ -148,6 +155,21 @@ describe('local interface', () => {
     await user.click(screen.getByRole('button', { name: 'Send chat' }));
     await screen.findByText('Clarification needed: Which artist?');
     expect(screen.getByRole('button', { name: 'Create preview' })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalledWith('/api/approval', expect.anything());
+  });
+
+  it('shows playback and retains chat exchanges without playback mutations', async () => {
+    const user = userEvent.setup(); const api = mockApi(); const originalGet = api.get;
+    api.get = vi.fn((path) => path === '/api/now-playing' ? Promise.resolve({ title: 'A song', artists: ['An artist'], duration_ms: 200000, progress_ms: 65000, is_playing: false }) : originalGet(path));
+    render(<App api={api} />);
+    expect(await screen.findByText('A song')).toBeInTheDocument();
+    expect(screen.getByText('An artist')).toBeInTheDocument();
+    expect(screen.getByText('1:05')).toBeInTheDocument();
+    expect(screen.getByText(/Paused/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Request or lasting preference'), 'I like this artist');
+    await user.click(screen.getByRole('button', { name: 'Send chat' }));
+    expect(await screen.findByText('I like this artist')).toBeInTheDocument();
+    expect(screen.getByText('Clear lasting preferences saved to your profile.')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalledWith('/api/approval', expect.anything());
   });
 });

@@ -121,6 +121,9 @@ def test_browser_to_backend_offline_flow(tmp_path: Path) -> None:
                 EC.element_to_be_clickable((By.XPATH, f"//button[normalize-space()='{label}']"))
             ).click()
 
+        wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//summary[text()='Settings and discovery']"))
+        ).click()
         text("No explicit preferences yet.")
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "fieldset:not([disabled])")))
         browser.find_element(By.ID, "message").send_keys("I like Artist")

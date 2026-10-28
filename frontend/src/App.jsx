@@ -3,6 +3,12 @@ import { createApi } from './api.js';
 
 const apiDefault = createApi();
 
+function timeLabel(ms) {
+  if (ms == null) return '–:––';
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 export default function App({ api = apiDefault }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -11,6 +17,9 @@ export default function App({ api = apiDefault }) {
   const [profile, setProfile] = useState([]);
   const [message, setMessage] = useState('');
   const [interpretation, setInterpretation] = useState(null);
+  const [conversation, setConversation] = useState([]);
+  const [playback, setPlayback] = useState(null);
+  const [playbackStatus, setPlaybackStatus] = useState('loading');
   const [query, setQuery] = useState('');
   const [searchKind, setSearchKind] = useState('track');
   const [results, setResults] = useState([]);
@@ -40,6 +49,24 @@ export default function App({ api = apiDefault }) {
     }).catch((e) => { if (alive) setError(e.message); });
     return () => { alive = false; };
   }, [api, connectionAttempt]);
+
+  useEffect(() => {
+    if (!ready) return undefined;
+    let alive = true;
+    let timer;
+    async function refresh() {
+      try {
+        const state = await api.get('/api/now-playing');
+        if (alive) { setPlayback(state); setPlaybackStatus('ready'); }
+      } catch {
+        if (alive) { setPlayback(null); setPlaybackStatus('error'); }
+      } finally {
+        if (alive) timer = setTimeout(refresh, 15000);
+      }
+    }
+    refresh();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [api, ready]);
 
   useEffect(() => {
     if (spotifySetup?.status !== 'pending') return undefined;
@@ -80,12 +107,28 @@ export default function App({ api = apiDefault }) {
   }
   const candidates = discovery?.result.candidates ?? [];
 
-  return <main>
-    <header><h1>TuneTrail</h1><p>Local discovery, explicit taste, and playback only after your approval.</p></header>
-    <p className="disclosure">Chat is sent to your configured hosted LLM and leaves this machine.</p>
+  return <main className="app-shell">
+    <header className="app-header"><h1>♪ TuneTrail</h1></header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {!ready && <><p>Connecting to the local API…</p>{error && <button onClick={() => { setError(''); setConnectionAttempt((n) => n + 1); }}>Retry connection</button>}</>}
+    <section className="now-playing" aria-label="Spotify now playing">
+      <div className="album-placeholder" aria-hidden="true">♪</div>
+      <div className="track-info">
+        <p className="eyebrow">SPOTIFY · NOW PLAYING</p>
+        {playbackStatus === 'loading' && <p>Checking Spotify…</p>}
+        {playbackStatus === 'error' && <p>Could not load Spotify playback. Check your connection and settings.</p>}
+        {playbackStatus === 'ready' && !playback && <p>No Spotify track available right now.</p>}
+        {playbackStatus === 'ready' && playback && <>
+          <h2>{playback.title}</h2><p>{playback.artists.join(', ')}</p>
+          <div className="progress-row"><span>{timeLabel(playback.progress_ms)}</span>
+            <progress aria-label="Track progress" max={playback.duration_ms} value={Math.min(playback.progress_ms ?? 0, playback.duration_ms)} />
+            <span>{timeLabel(playback.duration_ms)}</span></div>
+          <small>{playback.is_playing ? 'Playing' : 'Paused'} · Updated every 15 seconds</small>
+        </>}
+      </div>
+    </section>
+    <details className="settings"><summary>Settings and discovery</summary>
     <fieldset disabled={!ready || busy}>
       <section><h2>Connect Spotify</h2>
         <p>Configure your Spotify client ID and registered loopback redirect URI in .env, then restart TuneTrail. See docs/spotify-setup.md.</p>
@@ -115,21 +158,6 @@ export default function App({ api = apiDefault }) {
         <button onClick={() => run(async () => setSources(await api.get('/api/sources')))}>Show source status</button>
         {sources && <ul>{Object.entries(sources).map(([name, status]) => <li key={name}><strong>{name}</strong>: {status}</li>)}</ul>}
       </section>
-      <section><h2>Chat</h2>
-        <form onSubmit={(e) => { e.preventDefault(); run(async () => {
-          await invalidate();
-          const result = await api.post('/api/chat', { message });
-          setInterpretation(result); setMessage(''); await refreshProfile();
-        }); }}>
-          <label htmlFor="message">Request or lasting preference</label>
-          <textarea id="message" value={message} maxLength={4000} required onChange={(e) => setMessage(e.target.value)} />
-          <button>Send chat</button>
-        </form>
-        {interpretation?.clarification && <p>Clarification needed: {interpretation.clarification}</p>}
-        {interpretation?.preferences?.length > 0 && <p>Clear lasting preferences saved to your profile.</p>}
-        {interpretation?.intent && <details open><summary>Interpreted request</summary><pre>{JSON.stringify(interpretation.intent, null, 2)}</pre></details>}
-      </section>
-
       <section><h2>Spotify catalog search</h2>
         <p>Search is for reference only. Spotify results are never used as independent discovery seeds or feedback identities.</p>
         <form onSubmit={(e) => { e.preventDefault(); run(async () => setResults(await api.get(`/api/catalog-search?q=${encodeURIComponent(query)}&kind=${searchKind}`))); }}>
@@ -200,5 +228,27 @@ export default function App({ api = apiDefault }) {
         </div>}
       </section>
     </fieldset>
+    </details>
+    <section className="conversation" aria-label="Conversation" aria-live="polite">
+      {conversation.length === 0 && <div className="chat-entry assistant"><strong>TuneTrail</strong><p>What would you like to listen to?</p></div>}
+      {conversation.map((entry, index) => <div className={`chat-entry ${entry.role}`} key={index}>
+        <strong>{entry.role === 'user' ? 'You' : 'TuneTrail'}</strong><p>{entry.text}</p>
+        {entry.intent && <details><summary>Interpreted request</summary><pre>{JSON.stringify(entry.intent, null, 2)}</pre></details>}
+      </div>)}
+    </section>
+    <form className="composer" onSubmit={(e) => { e.preventDefault(); run(async () => {
+      const submitted = message;
+      await invalidate();
+      const result = await api.post('/api/chat', { message: submitted });
+      setInterpretation(result); setMessage('');
+      const reply = result.clarification ? `Clarification needed: ${result.clarification}` : result.intent?.clarification_needed ? 'Could you clarify your request?' : result.preferences?.length ? 'Clear lasting preferences saved to your profile.' : 'I interpreted your request. Open settings and discovery to continue.';
+      setConversation((entries) => [...entries, { role: 'user', text: submitted }, { role: 'assistant', text: reply, intent: result.intent }]);
+      await refreshProfile();
+    }); }}>
+      <label className="sr-only" htmlFor="message">Request or lasting preference</label>
+      <textarea id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} />
+      <button disabled={!ready || busy}>Send chat</button>
+      <p className="disclosure">Messages are sent to your configured hosted AI provider and leave this machine.</p>
+    </form>
   </main>;
 }
