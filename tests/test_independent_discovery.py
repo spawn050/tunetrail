@@ -178,6 +178,24 @@ async def test_partial_failure_preserves_results_and_deduplicates() -> None:
     assert len(result.candidates) == 1 and result.source_failures == 1 and result.needs_more_seeds
 
 
+async def test_provider_recording_with_spotify_reference_is_not_a_candidate() -> None:
+    class Source:
+        async def recording(self, recording_id: UUID) -> Recording:
+            return Recording(
+                id=str(SONG),
+                title="spotify:track:secret",
+                artists=[Artist(id=str(ARTIST), name="Artist")],
+            )
+
+        async def browse_artist_recordings(self, artist_id: UUID, *, limit: int) -> list[Recording]:
+            return []
+
+    result = await IndependentDiscovery(Source()).discover(
+        [IndependentSeed(SeedKind.RECORDING, SONG)]
+    )
+    assert not result.candidates and result.needs_more_seeds
+
+
 async def test_recording_request_contains_only_musicbrainz_id() -> None:
     calls: list[httpx.Request] = []
 
