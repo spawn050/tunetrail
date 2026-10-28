@@ -506,16 +506,24 @@ IDs. See `docs/phase-4v-interface.md`; provider-policy questions remain open.
 synthetic results or treating playback actions as evidence of listening.
 
 - [ ] Define representative synthetic and independently reviewed evaluation cases for explicit preferences, candidate discovery, source coverage, conservative matching, ranking, and explanations.
-- [ ] Measure relevant coverage, ambiguity, resolution, diversity, source failures, and preview latency; distinguish fixture regressions from real-world accuracy.
-- [ ] Verify the independent-input boundary, legacy-data isolation, privacy controls, missing-feature behavior, and explicit approval before every playback or queue mutation.
+- [x] Measure relevant coverage, ambiguity, resolution, diversity, source failures, and preview latency; distinguish fixture regressions from real-world accuracy.
+- [x] Verify the independent-input boundary, legacy-data isolation, privacy controls, missing-feature behavior, and explicit approval before every playback or queue mutation.
 - [ ] Run offline end-to-end regression tests from chat or feedback through the local API and browser preview, including cancellation and expected failures.
-- [ ] Document unresolved ReccoBeats contract, provenance, and provider-policy questions without claiming clearance; retain source-specific feature scales.
+- [x] Document unresolved ReccoBeats contract, provenance, and provider-policy questions without claiming clearance; retain source-specific feature scales.
 - [ ] Obtain separate owner authorization before any live read-only evaluation; record scope, results, and limitations.
 - [ ] Obtain separate authorization for playback acceptance and require an active Spotify Premium device and explicit approval for each playback or queue mutation.
 
 **Phase gate:** offline regression and privacy/approval checks pass, limitations and
 open evidence are documented, and any authorized live acceptance is reported
 separately. This gate does not itself authorize live tests or establish policy clearance.
+
+**Phase 5 offline progress:** synthetic fixture metrics, privacy and approval tests,
+and documented limitations pass. Independent review of the evaluation cases has
+not occurred. Frontend tests mock the API and backend tests separately mock providers;
+a single integrated browser-to-backend offline regression remains open. Live read-only
+and playback acceptance have not been authorized or performed. See
+`docs/phase-5-evaluation.md`. Do not treat these partial results as real-world accuracy
+or policy clearance.
 
 ### Phase 6 — Reliability and polish
 
