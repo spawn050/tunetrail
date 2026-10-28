@@ -3,7 +3,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tunetrail.domain.models import ListeningIntent, PreferenceSubject
 from tunetrail.recommendation.explicit_profile import FeedbackResponse
@@ -46,6 +46,13 @@ class DiscoveryInput(Input):
     independently_obtained: Literal[True]
     enrich: bool = False
 
+    @field_validator("independently_obtained", mode="before")
+    @classmethod
+    def independent_confirmation(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("Explicit confirmation required")
+        return value
+
 
 class PreviewInput(Input):
     discovery_id: str = Field(min_length=1, max_length=100)
@@ -60,6 +67,20 @@ class ProposalInput(Input):
 class ApprovalInput(ProposalInput):
     explicitly_approve: Literal[True]
 
+    @field_validator("explicitly_approve", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("Explicit approval required")
+        return value
+
 
 class ResetInput(Input):
     confirm_reset: Literal[True]
+
+    @field_validator("confirm_reset", mode="before")
+    @classmethod
+    def explicit_reset(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("Explicit confirmation required")
+        return value

@@ -95,6 +95,12 @@ async def test_chat_discovery_preview_and_approved_playback(tmp_path: Path) -> N
         response = await client.post(
             "/api/approval",
             headers=headers,
+            json={"proposal_id": proposal, "explicitly_approve": 1},
+        )
+        assert response.status_code == 422 and not play.called
+        response = await client.post(
+            "/api/approval",
+            headers=headers,
             json={"proposal_id": proposal, "explicitly_approve": True, "device_id": "different"},
         )
         assert response.status_code == 422 and not play.called
@@ -112,4 +118,141 @@ async def test_chat_discovery_preview_and_approved_playback(tmp_path: Path) -> N
             )
         ).status_code == 404
         assert play.call_count == 1
+    await services.http.aclose()
+
+
+@respx.mock
+async def test_failed_player_request_cannot_reuse_approval(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    services.discovery = IndependentDiscovery(Source())
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    track = {**track_payload(), "is_playable": True}
+    respx.get("https://api.example/v1/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"tracks": {"items": [track], "total": 1}},
+        )
+    )
+    play = respx.put("https://api.example/v1/me/player/play").mock(return_value=httpx.Response(503))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        headers = {"x-tunetrail-token": (await client.get("/api/session")).json()["token"]}
+        discovery = await client.post(
+            "/api/discovery",
+            headers=headers,
+            json={
+                "seeds": [{"kind": "recording", "musicbrainz_id": str(UUID(int=1))}],
+                "limit": 1,
+                "independently_obtained": True,
+            },
+        )
+        preview = await client.post(
+            "/api/preview",
+            headers=headers,
+            json={
+                "discovery_id": discovery.json()["discovery_id"],
+                "intent": {"queue_size": 1},
+            },
+        )
+        approval = {"proposal_id": preview.json()["proposal_id"], "explicitly_approve": True}
+        assert (
+            await client.post("/api/approval", headers=headers, json=approval)
+        ).status_code == 502
+        assert (
+            await client.post("/api/approval", headers=headers, json=approval)
+        ).status_code == 404
+        assert play.call_count == 1
+    await services.http.aclose()
+
+
+@respx.mock
+async def test_cancel_expiry_source_failure_and_profile_controls(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    services.discovery = IndependentDiscovery(Source())
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    track = {**track_payload(), "is_playable": True}
+    search = respx.get("https://api.example/v1/search").mock(
+        return_value=httpx.Response(200, json={"tracks": {"items": [track], "total": 1}})
+    )
+    app = create_app(services)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8766"
+    ) as client:
+        headers = {"x-tunetrail-token": (await client.get("/api/session")).json()["token"]}
+        preference = {"subject": "artist", "name": "Artist", "strength": -1}
+        assert (
+            await client.post("/api/preferences", headers=headers, json=preference)
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/api/feedback",
+                headers=headers,
+                json={"subject": "artist", "name": "Artist", "response": "skip"},
+            )
+        ).status_code == 200
+        assert (await client.get("/api/preferences")).json()[0]["strength"] == -1
+        assert (
+            await client.post(
+                "/api/preferences/reset", headers=headers, json={"confirm_reset": False}
+            )
+        ).status_code == 422
+        discovery_body = {
+            "seeds": [{"kind": "recording", "musicbrainz_id": str(UUID(int=1))}],
+            "limit": 1,
+        }
+        assert (
+            await client.post("/api/discovery", headers=headers, json=discovery_body)
+        ).status_code == 422
+        discovery_body["independently_obtained"] = True
+        discovered = await client.post("/api/discovery", headers=headers, json=discovery_body)
+        discovery = discovered.json()["discovery_id"]
+        preview_body = {"discovery_id": discovery, "intent": {"queue_size": 1}}
+        preview = (await client.post("/api/preview", headers=headers, json=preview_body)).json()
+        proposal = preview["proposal_id"]
+        unsupported = await client.post(
+            "/api/preview",
+            headers=headers,
+            json={"discovery_id": discovery, "intent": {"year_start": 2000}},
+        )
+        assert unsupported.json()["proposal_id"] is None
+        assert (
+            await client.post("/api/cancel", headers=headers, json={"proposal_id": proposal})
+        ).status_code == 200
+        assert (
+            await client.post(
+                "/api/approval",
+                headers=headers,
+                json={"proposal_id": proposal, "explicitly_approve": True},
+            )
+        ).status_code == 404
+        search.mock(return_value=httpx.Response(503))
+        preview = (await client.post("/api/preview", headers=headers, json=preview_body)).json()
+        assert preview["proposal_id"] is None and preview["issues"]
+        services.discoveries[discovery] = (0, services.discoveries[discovery][1])
+        assert (
+            await client.post("/api/preview", headers=headers, json=preview_body)
+        ).status_code == 404
+        assert (
+            await client.post(
+                "/api/preferences/reset", headers=headers, json={"confirm_reset": True}
+            )
+        ).status_code == 200
+        assert (await client.get("/api/preferences")).json() == []
     await services.http.aclose()

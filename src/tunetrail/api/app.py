@@ -1,5 +1,6 @@
 """Local API; all provider state and playback proposals stay on the server."""
 
+import asyncio
 import secrets
 import time
 from dataclasses import asdict, dataclass
@@ -55,8 +56,8 @@ class Services:
 
     def __init__(self, settings: Settings, database: Path, credentials: Path) -> None:
         self.settings = settings
-        self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.profile = ExplicitProfileService(SQLitePersonalizationStore(database))
+        self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.auth = SpotifyAuthenticator(
             client_id=settings.spotify_client_id or "",
             redirect_uri=settings.spotify_redirect_uri,
@@ -69,6 +70,7 @@ class Services:
         self.discovery = IndependentDiscovery(MusicBrainzClient(self.http))
         self.enricher = ReccoBeatsEnricher(self.http)
         self.parser: PreferenceChatParser | None = None
+        self.discovery_lock = asyncio.Lock()
         self.discoveries: dict[str, tuple[float, tuple[EnrichedCandidate, ...]]] = {}
         self.proposals: dict[str, Proposal] = {}
 
@@ -88,8 +90,11 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.exception_handler(SpotifyApiError)
     @app.exception_handler(SpotifyAuthorizationError)
+    @app.exception_handler(httpx.HTTPError)
     async def spotify_error(_request: object, _error: Exception) -> JSONResponse:
-        return JSONResponse({"detail": "Spotify unavailable or not authenticated"}, status_code=502)
+        return JSONResponse(
+            {"detail": "Provider unavailable or not authenticated"}, status_code=502
+        )
 
     @app.exception_handler(ValueError)
     async def input_error(_request: object, _error: ValueError) -> JSONResponse:
@@ -166,19 +171,20 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.post("/api/discovery")
     async def discover(body: DiscoveryInput) -> object:
-        services.prune()
-        if len(services.discoveries) >= 100:
-            raise HTTPException(429, "Too many active discoveries")
-        result = await services.discovery.discover(
-            [IndependentSeed(seed.kind, seed.musicbrainz_id) for seed in body.seeds],
-            limit=body.limit,
-            enricher=services.enricher if body.enrich else None,
-        )
-        items = result.enriched or tuple(
-            EnrichedCandidate(c, None, "not requested") for c in result.candidates
-        )
-        identifier = secrets.token_urlsafe(32)
-        services.discoveries[identifier] = (time.monotonic() + 300, items)
+        async with services.discovery_lock:
+            services.prune()
+            if len(services.discoveries) >= 100:
+                raise HTTPException(429, "Too many active discoveries")
+            result = await services.discovery.discover(
+                [IndependentSeed(seed.kind, seed.musicbrainz_id) for seed in body.seeds],
+                limit=body.limit,
+                enricher=services.enricher if body.enrich else None,
+            )
+            items = result.enriched or tuple(
+                EnrichedCandidate(c, None, "not requested") for c in result.candidates
+            )
+            identifier = secrets.token_urlsafe(32)
+            services.discoveries[identifier] = (time.monotonic() + 300, items)
         return {"discovery_id": identifier, "result": asdict(result)}
 
     @app.post("/api/preview")
