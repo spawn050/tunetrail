@@ -276,7 +276,7 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 ### Scoreboard Rules
 
 - Mark an item complete only after its tests or stated verification have passed.
-- Keep unchecked items in place; add brief implementation notes below a phase when a decision or deviation matters.
+- Keep unchecked active items in place; add brief implementation notes below a phase when a decision or deviation matters. Archived checklists are historical, not active instructions.
 - Do not begin a phase's user-facing features until its **phase gate** is satisfied. Preparatory research may happen earlier.
 - Every agent should update this file in the same change set as the completed work.
 
@@ -395,7 +395,7 @@ OpenRouter is a gateway, not a hard dependency in the domain layer. Every graph 
 
 Phases 4R–4V redesign existing behavior; they do not describe the current runtime.
 Complete one phase per implementation pass in small, testable commits. Offline work
-may proceed while the Phase 5 and 6 evidence gates remain open. Live read-only tests
+may proceed while the legacy Phase 5 and 6 evidence gates remain open. Live read-only tests
 require separate owner authorization, and playback acceptance and every playback or
 queue mutation require explicit approval. These phase gates are not policy clearance.
 
@@ -462,7 +462,60 @@ and can send Spotify-derived candidate metadata to MusicBrainz. See
 
 **Phase gate:** the local React interface supports the mocked flow from preferences to an approved playback request.
 
-### Phase 5 — Last.fm enrichment
+### Phase 5 — Redesigned evaluation and acceptance
+
+**Goal:** evaluate the complete redesigned local discovery flow without overstating
+synthetic results or treating playback actions as evidence of listening.
+
+- [ ] Define representative synthetic and independently reviewed evaluation cases for explicit preferences, candidate discovery, source coverage, conservative matching, ranking, and explanations.
+- [ ] Measure relevant coverage, ambiguity, resolution, diversity, source failures, and preview latency; distinguish fixture regressions from real-world accuracy.
+- [ ] Verify the independent-input boundary, legacy-data isolation, privacy controls, missing-feature behavior, and explicit approval before every playback or queue mutation.
+- [ ] Run offline end-to-end regression tests from chat or feedback through the local API and browser preview, including cancellation and expected failures.
+- [ ] Document unresolved ReccoBeats contract, provenance, and provider-policy questions without claiming clearance; retain source-specific feature scales.
+- [ ] Obtain separate owner authorization before any live read-only evaluation; record scope, results, and limitations.
+- [ ] Obtain separate authorization for playback acceptance and require an active Spotify Premium device and explicit approval for each playback or queue mutation.
+
+**Phase gate:** offline regression and privacy/approval checks pass, limitations and
+open evidence are documented, and any authorized live acceptance is reported
+separately. This gate does not itself authorize live tests or establish policy clearance.
+
+### Phase 6 — Reliability and polish
+
+**Goal:** make the redesigned local application maintainable and clear for personal use.
+
+- [ ] Add clear recovery for expired credentials, missing scopes or devices, rate limits, invalid LLM output, network failures, and optional-source outages.
+- [ ] Provide source status and appropriate enable/disable controls without bypassing data boundaries.
+- [ ] Review profile inspection, reset, export, credential cleanup, and any deletion controls; preserve legacy data until its owner authorizes its handling.
+- [ ] Document local setup, Spotify developer configuration, hosted-LLM data disclosure, privacy, troubleshooting, and contribution procedures.
+- [ ] Test installation and startup on a clean machine, with the backend bound locally and credentials kept server-side.
+- [ ] Evaluate any optional local metrics for necessity and privacy; do not represent approvals, skips, or playback requests as proof of listening or preference.
+
+**Phase gate:** documented local setup and offline recovery checks pass, with data
+controls and unresolved limitations accurately described.
+
+### Phase 7 — Deferred future extensions
+
+This is an ideas section, not an approved implementation phase or a prerequisite
+for completing the redesign. Revisit individual items only after an explicit owner
+decision and an updated scope, data-boundary review, and appropriate authorization.
+
+- Last.fm and passive listening history, including unresolved provider conditions.
+- ReccoBeats' recommendation endpoint, distinct from the feature enrichment in 4S.
+
+AI-based audio analysis is not planned. New extension proposals must not silently
+change the explicit-profile or external-provider data boundaries.
+
+## Historical delivery phases — superseded by the redesign
+
+The original Phases 5–8 below are archived for implementation history, not active
+instructions. Their numbering is retained for traceability and is distinct from
+the new phases above. Checked items record earlier implementation, not acceptance
+of the redesigned runtime. The legacy Phase 5 and 6 evidence gates and legacy
+Phase 7 ReccoBeats evaluation remain open; archiving them does not resolve policy
+questions or authorize live testing. Applicable remaining work is addressed by
+Phases 4R–4V and the new Phases 5–6, not automatically carried forward wholesale.
+
+### Legacy Phase 5 — Last.fm enrichment
 
 
 **Goal:** optionally improve discovery through Last.fm history, tags, and similarity links.
@@ -481,7 +534,7 @@ and can send Spotify-derived candidate metadata to MusicBrainz. See
 
 **Phase gate:** Last.fm is opt-in, failure-tolerant, and measurably increases valid candidate diversity without lowering Spotify-resolution accuracy.
 
-### Phase 6 — MusicBrainz enrichment
+### Legacy Phase 6 — MusicBrainz enrichment
 
 
 **Goal:** improve metadata quality and cross-source matching without slowing interactive use.
@@ -499,7 +552,7 @@ and can send Spotify-derived candidate metadata to MusicBrainz. See
 
 **Phase gate:** era-based requests and external-source resolutions are more accurate, confidence-scored, rate-safe, and explainable.
 
-### Phase 7 — ReccoBeats evaluation
+### Legacy Phase 7 — ReccoBeats evaluation
 
 The original evaluation plan below remains an open evidence gate. The owner has
 chosen to pursue feature enrichment provisionally in Phase 4S rather than wait for
@@ -522,7 +575,7 @@ live calls. Recommendation-endpoint integration remains deferred.
 
 **Phase gate:** a documented, evidence-based go/no-go decision exists. If enabled, ReccoBeats is optional, failure-tolerant, and never bypasses Spotify resolution or user approval.
 
-### Phase 8 — Evaluation and polish
+### Legacy Phase 8 — Evaluation and polish
 
 
 **Goal:** make the application trustworthy and maintainable for daily personal use.
@@ -563,13 +616,13 @@ policy question, not permission or clearance. Review the feature contract and
 provider terms proportionately and use mocked data until live testing is separately
 authorized. `docs/source-policy-review.md` records the earlier provisional no-go and
 its rationale; the owner has since chosen to proceed provisionally, not to close
-the Phase 7 evidence gate.
+the legacy Phase 7 evidence gate.
 
 Existing personalization still uses Spotify listening signals and may send
 Spotify-derived metadata to external providers. The redesign must map and replace
 those paths, preserve any existing data until the owner decides otherwise, and keep
 Spotify resolution and every playback/queue mutation behind the explicit preview
-and approval boundary. Phase 5 and 6 evidence gates remain open. Last.fm's API
+and approval boundary. The legacy Phase 5 and 6 evidence gates remain open. Last.fm's API
 conditions and Spotify's treatment of Spotify-origin scrobbles remain unresolved if
 passive history is revisited later.
 
@@ -705,7 +758,7 @@ SQLite sessions. Fixed local evaluation fixtures cover peaceful-study profile
 behavior, familiar/discovery selection, duration, explicit-content, and
 repetition constraints.
 
-### Phase 5
+### Legacy Phase 5 notes
 
 Last.fm is enabled only when both API key and username are configured. Public
 reads require no Last.fm session. Profile data is cached locally with a
@@ -758,7 +811,7 @@ The previously observed teardown race was subsequently addressed: queued playbac
 progress timer callbacks now tolerate the now-playing widget having been removed.
 A regression test invokes the callback after the Textual application unmounts.
 
-### Phase 6
+### Legacy Phase 6 notes
 
 Phase 6 was started with the project owner's explicit override of the still-open
 Phase 5 gate. The Phase 5 diversity and accuracy evidence remains outstanding and
@@ -830,7 +883,7 @@ release-completeness and cache-version regression cases. This does not resolve t
 policy review, establish live response shapes or data quality, or complete the
 remaining unchecked Phase 6 work and evidence gate. No catalog requests were made.
 
-### Phase 7
+### Legacy Phase 7 notes
 
 Preparatory documentation and the earlier provisional no-go are recorded in
 `docs/source-policy-review.md`. The current Spotify policy raises unresolved risks
@@ -840,19 +893,24 @@ ReccoBeats. The ReccoBeats documentation identifies Spotify-derived base metadat
 and unpublished rate limits, while its rendered recommendation API reference does
 not provide a complete schema. No runtime adapter, live calls, policy clearance,
 or final evidence-based go/no-go has been completed. The owner subsequently chose
-provisional feature enrichment in Phase 4S; Phase 7's evidence gate remains open.
+provisional feature enrichment in Phase 4S; the legacy Phase 7 evidence gate remains open.
 
-### Phase 8
+### Legacy Phase 8 notes
 
 _No implementation notes yet._
 
 ## Testing Strategy
 
+The active strategy follows Phases 4R–4V and the new Phases 5–6. The checks below
+are offline unless the owner separately authorizes live testing; they do not close
+historical evidence gates or establish provider-policy clearance.
+
 ### Unit tests
 
 - Intent validation and ambiguity handling.
 - Candidate normalization and resolution confidence.
-- Ranking, hard filters, diversity, and recent-play rules.
+- Explicit-profile provenance, classification, isolation and reset.
+- Ranking, hard filters, diversity, and bounded repetition avoidance without passive listening history.
 - Credential storage permissions and secret redaction.
 - Configuration and LLM-provider factory behavior.
 
@@ -860,10 +918,14 @@ _No implementation notes yet._
 
 - Spotify PKCE callback, refresh, and player error paths.
 - LangGraph transitions and approval interrupt/resume.
-- Mocked Last.fm, MusicBrainz, and ReccoBeats adapters.
-- Optional-source failures that leave Spotify-only queues functional.
+- Mocked independent-input MusicBrainz and ReccoBeats flows and outbound-data boundaries.
+- Optional-source failures that leave discovery and ranking functional where possible.
+- Local API and React interactions, including profile updates and approval-gated playback.
 
 ### Manual acceptance scenarios
+
+Live read-only checks require separate owner authorization; playback acceptance
+requires separate authorization and explicit approval for every mutation.
 
 - “Play Taylor Swift from 2008 to 2012.”
 - “Play something peaceful for studying for 45 minutes.”
@@ -908,4 +970,5 @@ tests/
 2. Follow with Phase 4S candidate discovery and provisional ReccoBeats feature enrichment.
 3. Implement Phase 4T ranking and conservative Spotify resolution.
 4. Build the local backend API and React interface in Phases 4U and 4V.
-5. Revisit deferred sources and open evidence gates separately; obtain authorization before live tests.
+5. Evaluate the redesigned flow in the new Phase 5, then complete reliability and polish in the new Phase 6; obtain authorization before live tests.
+6. Revisit deferred extensions and historical evidence separately when appropriate.
