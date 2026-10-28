@@ -5,10 +5,9 @@ The planned React interface and local Python API will use explicit preferences,
 independent discovery, TuneTrail ranking and Spotify playback with user approval.
 See [the roadmap](ROADMAP.md) for the active phases and their status.
 
-**Current status:** there is no runnable user-facing application. The legacy
-terminal interface and its Spotify-derived personalization workflow have been
-removed; the browser interface and API are planned in Phases 4U–4V. The remaining
-modules are development foundations, not a complete end-to-end product.
+**Current status:** the Phase 4U local API is available, but there is no browser
+interface yet. The legacy terminal interface and its Spotify-derived personalization
+workflow have been removed; React is planned for Phase 4V.
 
 ## Development
 
@@ -19,6 +18,11 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 ```
+
+Run the API locally with `uv run python -m tunetrail.api`; it binds to
+`127.0.0.1:8766`. See [the API guide](docs/phase-4u-api.md) for its local-origin
+protections, operations, Spotify authentication limitation, and offline status.
+Chat sent to a configured hosted LLM leaves the machine.
 
 The existing Spotify authentication and provider modules are retained for review
 and possible reuse. Their presence does not mean the redesigned app is integrated

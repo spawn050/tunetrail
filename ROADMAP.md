@@ -42,8 +42,8 @@ provider-policy clearance is implied by this plan.
 
 This architecture is planned, not the current implementation. The legacy TUI,
 entry point and Spotify-first personalization orchestration have been removed.
-There is no runnable user-facing application until the local API and React UI are
-implemented. Existing local data and credentials remain untouched; lower-level
+The local API is implemented in Phase 4U; there is no user-facing application until
+the React UI is implemented. Existing local data and credentials remain untouched; lower-level
 legacy provider and storage modules still require review before reuse.
 
 ```text
@@ -465,12 +465,20 @@ for supported signals, constraints, approval responsibilities and limitations.
 
 **Goal:** expose the redesigned Python services to a browser running on the same machine.
 
-- [ ] Provide local API operations for chat, search, preferences, candidate discovery, preview, and approval; bind to localhost by default and do not deploy publicly.
-- [ ] Keep credentials and Spotify tokens server-side; validate inputs and protect mutation endpoints against unintended cross-origin requests.
-- [ ] Make clear that chat sent to a hosted LLM leaves the machine; avoid transmitting credentials or unnecessary profile data.
-- [ ] Add mocked API tests for normal flows, failures, validation, and the approval boundary.
+- [x] Provide local API operations for chat, search, preferences, candidate discovery, preview, and approval; bind to localhost by default and do not deploy publicly.
+- [x] Keep credentials and Spotify tokens server-side; validate inputs and protect mutation endpoints against unintended cross-origin requests.
+- [x] Make clear that chat sent to a hosted LLM leaves the machine; avoid transmitting credentials or unnecessary profile data.
+- [x] Add mocked API tests for normal flows, failures, validation, and the approval boundary.
 
 **Phase gate:** offline API tests cover the main flows and preserve the playback approval boundary.
+
+**Phase 4U offline gate met:** the localhost API exposes the redesigned services,
+with local-origin and session-token protection and server-owned, single-use playback
+proposals. Mocked tests cover discovery, chat, preferences, validation, cancellation,
+source failure, playback failure, and approval. No live provider or playback tests were
+run. The API has no Spotify sign-in endpoint and requires existing local credentials;
+the React interface remains Phase 4V. Independent seed provenance depends on the
+caller, and provider-policy questions remain unresolved. See `docs/phase-4u-api.md`.
 
 ### Phase 4V — React interface and surveys
 
