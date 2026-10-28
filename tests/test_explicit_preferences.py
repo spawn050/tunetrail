@@ -1,12 +1,12 @@
 """Explicit preferences remain separate from legacy Spotify-derived records."""
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from tests.factories import feedback
 from tunetrail.domain.models import (
     ChatInterpretation,
     ExplicitPreference,
@@ -33,8 +33,15 @@ def preference(**updates: object) -> ExplicitPreference:
 
 async def test_profile_roundtrip_update_reset_and_legacy_isolation(tmp_path: Path) -> None:
     store = SQLitePersonalizationStore(tmp_path / "profile.sqlite3")
-    legacy = feedback()
-    await store.add(legacy)
+    with sqlite3.connect(tmp_path / "profile.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='profile_summary'"
+        ).fetchone() is None
+        connection.execute("CREATE TABLE feedback (spotify_uri TEXT, kind TEXT, created_at TEXT)")
+        connection.execute(
+            "INSERT INTO feedback (spotify_uri, kind, created_at) VALUES (?, ?, ?)",
+            ("spotify:track:legacy", "like", datetime.now(UTC).isoformat()),
+        )
     original = preference()
     await store.set_preference(original)
     replacement = preference(name="AN ARTIST", polarity="dislike", source="survey")
@@ -45,7 +52,35 @@ async def test_profile_roundtrip_update_reset_and_legacy_isolation(tmp_path: Pat
     assert replacement.source is PreferenceSource.SURVEY
     await store.reset_explicit_preferences()
     assert await store.explicit_preferences() == []
-    assert list(await store.recent()) == [legacy]
+    with sqlite3.connect(tmp_path / "profile.sqlite3") as connection:
+        assert connection.execute("SELECT spotify_uri FROM feedback").fetchone() == (
+            "spotify:track:legacy",
+        )
+
+
+async def test_legacy_database_migration_preserves_rows(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE profile_summary (id INTEGER PRIMARY KEY, favorite_artists TEXT NOT NULL, "
+            "favorite_track_uris TEXT NOT NULL, recent_track_uris TEXT NOT NULL, "
+            "summary TEXT, updated_at TEXT NOT NULL)"
+        )
+        for version in range(1, 4):
+            connection.execute("INSERT INTO schema_migrations VALUES (?, ?)", (version, "old"))
+        connection.execute(
+            "INSERT INTO profile_summary VALUES (1, ?, ?, ?, ?, ?)",
+            ('["old"]', "[]", "[]", "legacy", "2020-01-01T00:00:00+00:00"),
+        )
+    store = SQLitePersonalizationStore(path)
+    await store.set_preference(preference())
+    await store.reset_explicit_preferences()
+    with sqlite3.connect(path) as connection:
+        row = connection.execute("SELECT favorite_artists, summary FROM profile_summary").fetchone()
+        assert row == ('["old"]', "legacy")
 
 
 def test_preference_rejects_spotify_references_and_ambiguous_recording() -> None:
