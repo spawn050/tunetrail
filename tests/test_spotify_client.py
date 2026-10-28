@@ -12,6 +12,7 @@ from tunetrail.auth.models import OAuthToken
 from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.domain.models import CatalogItemKind
+from tunetrail.spotify.approval import PlayerAction
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.errors import SpotifyNoActiveDeviceError, SpotifyRateLimitError
 
@@ -46,6 +47,14 @@ async def spotify_client(
         api_url="https://api.example/v1",
         sleep=sleep,
     )
+
+
+def approved(
+    client: SpotifyClient, method: str, path: str, params: object = None, body: object = None
+) -> str:
+    identifier = client.approvals.propose(PlayerAction.create(method, path, params, body))
+    client.approvals.approve(identifier)
+    return identifier
 
 
 @respx.mock
@@ -152,7 +161,10 @@ async def test_player_mutation_refreshes_playback(tmp_path: Path) -> None:
     respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
     async with httpx.AsyncClient() as http_client:
         client = await spotify_client(tmp_path, http_client, [])
-        await client.pause(device_id="device-1")
+        await client.pause(
+            device_id="device-1",
+            approval=approved(client, "PUT", "/me/player/pause", {"device_id": "device-1"}),
+        )
 
     assert pause.called
     assert client.last_playback is None
@@ -177,12 +189,33 @@ async def test_client_supports_queue_playback_and_device_operations(tmp_path: Pa
     respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
     async with httpx.AsyncClient() as http_client:
         client = await spotify_client(tmp_path, http_client, [])
-        await client.add_to_queue("spotify:track:4uLU6hMCjMI75M1A2tKUQC", device_id="device-1")
-        await client.start_playback(["spotify:track:4uLU6hMCjMI75M1A2tKUQC"], device_id="device-1")
-        await client.resume(device_id="device-1")
-        await client.next_track(device_id="device-1")
-        await client.previous_track(device_id="device-1")
-        await client.select_device("device-1")
+        uri = "spotify:track:4uLU6hMCjMI75M1A2tKUQC"
+        device = {"device_id": "device-1"}
+        await client.add_to_queue(
+            uri,
+            device_id="device-1",
+            approval=approved(client, "POST", "/me/player/queue", {**device, "uri": uri}),
+        )
+        await client.start_playback(
+            [uri],
+            device_id="device-1",
+            approval=approved(client, "PUT", "/me/player/play", device, {"uris": [uri]}),
+        )
+        await client.resume(
+            device_id="device-1", approval=approved(client, "PUT", "/me/player/play", device)
+        )
+        await client.next_track(
+            device_id="device-1", approval=approved(client, "POST", "/me/player/next", device)
+        )
+        await client.previous_track(
+            device_id="device-1", approval=approved(client, "POST", "/me/player/previous", device)
+        )
+        await client.select_device(
+            "device-1",
+            approval=approved(
+                client, "PUT", "/me/player", None, {"device_ids": ["device-1"], "play": False}
+            ),
+        )
 
     assert queue.called
     assert play.call_count == 2
@@ -202,7 +235,7 @@ async def test_rate_limit_on_mutation_is_reported_without_retry(tmp_path: Path) 
     async with httpx.AsyncClient() as http_client:
         client = await spotify_client(tmp_path, http_client, [])
         with pytest.raises(SpotifyRateLimitError) as error:
-            await client.pause()
+            await client.pause(approval=approved(client, "PUT", "/me/player/pause", {}))
 
     assert error.value.retry_after_seconds == 3.0
 
@@ -216,4 +249,4 @@ async def test_no_active_device_has_a_specific_error(tmp_path: Path) -> None:
     async with httpx.AsyncClient() as http_client:
         client = await spotify_client(tmp_path, http_client, [])
         with pytest.raises(SpotifyNoActiveDeviceError):
-            await client.pause()
+            await client.pause(approval=approved(client, "PUT", "/me/player/pause", {}))

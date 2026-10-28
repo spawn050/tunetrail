@@ -16,6 +16,7 @@ from tunetrail.domain.models import (
     PlaybackState,
     ResolvedTrack,
 )
+from tunetrail.spotify.approval import PlayerAction, PlayerApprovals
 from tunetrail.spotify.errors import (
     SpotifyApiError,
     SpotifyAuthenticationError,
@@ -62,6 +63,7 @@ class SpotifyClient:
         self._max_get_attempts = max_get_attempts
         self._sleep = sleep
         self._player_lock = asyncio.Lock()
+        self.approvals = PlayerApprovals()
         self.last_playback: PlaybackState | None = None
 
     async def current_user(self) -> SpotifyUser:
@@ -93,6 +95,34 @@ class SpotifyClient:
         """Search the Spotify catalog for at most ten tracks."""
         catalog_items = await self.search_catalog(query, kind=CatalogItemKind.TRACK, limit=limit)
         return [item.track.candidates[0] for item in catalog_items if item.track is not None]
+
+    async def search_playable_tracks(self, query: str, *, limit: int = 10) -> Sequence[Candidate]:
+        """Search with market context and retain only explicitly playable, unrestricted tracks."""
+        from tunetrail.spotify.models import candidate_from_track
+
+        if not query.strip() or not 1 <= limit <= 10:
+            raise ValueError("Spotify search requires a query and a limit of 1–10")
+        payload = _response_mapping(
+            await self._request(
+                "GET",
+                "/search",
+                params={"q": query, "type": "track", "limit": limit, "market": "from_token"},
+            )
+        )
+        page = _mapping_or_error(payload.get("tracks"))
+        items = page.get("items")
+        if not isinstance(items, list):
+            raise SpotifyPayloadError("Spotify search response was malformed")
+        rows = cast(list[object], items)
+        total = page.get("total")
+        if type(total) is not int or total != len(rows):
+            return []  # A truncated result set cannot establish uniqueness.
+        results: list[Candidate] = []
+        for value in rows:
+            item = _mapping_or_error(value)
+            if item.get("is_playable") is True and not item.get("restrictions"):
+                results.append(candidate_from_track(item))
+        return results
 
     async def search_catalog(
         self, query: str, *, kind: CatalogItemKind, limit: int = 10
@@ -160,16 +190,23 @@ class SpotifyClient:
             return None
         return current_queue_from_payload(_response_mapping(response))
 
-    async def add_to_queue(self, spotify_uri: str, *, device_id: str | None = None) -> None:
+    async def add_to_queue(
+        self, spotify_uri: str, *, device_id: str | None = None, approval: str | None = None
+    ) -> None:
         """Append one explicit Spotify track URI to the selected device queue."""
         await self._player_request(
             "POST",
             "/me/player/queue",
             params=_device_params({"uri": spotify_uri}, device_id),
+            approval=approval,
         )
 
     async def start_playback(
-        self, spotify_uris: Sequence[str], *, device_id: str | None = None
+        self,
+        spotify_uris: Sequence[str],
+        *,
+        device_id: str | None = None,
+        approval: str | None = None,
     ) -> None:
         """Start playback of explicit Spotify track URIs on the selected device."""
         if not spotify_uris:
@@ -179,30 +216,43 @@ class SpotifyClient:
             "/me/player/play",
             params=_device_params({}, device_id),
             json={"uris": list(spotify_uris)},
+            approval=approval,
         )
 
-    async def resume(self, *, device_id: str | None = None) -> None:
+    async def resume(self, *, device_id: str | None = None, approval: str | None = None) -> None:
         """Resume current playback on the selected device."""
-        await self._player_request("PUT", "/me/player/play", params=_device_params({}, device_id))
+        await self._player_request(
+            "PUT", "/me/player/play", params=_device_params({}, device_id), approval=approval
+        )
 
-    async def pause(self, *, device_id: str | None = None) -> None:
+    async def pause(self, *, device_id: str | None = None, approval: str | None = None) -> None:
         """Pause playback on the selected device."""
-        await self._player_request("PUT", "/me/player/pause", params=_device_params({}, device_id))
+        await self._player_request(
+            "PUT", "/me/player/pause", params=_device_params({}, device_id), approval=approval
+        )
 
-    async def next_track(self, *, device_id: str | None = None) -> None:
+    async def next_track(
+        self, *, device_id: str | None = None, approval: str | None = None
+    ) -> None:
         """Skip to the next track on the selected device."""
-        await self._player_request("POST", "/me/player/next", params=_device_params({}, device_id))
+        await self._player_request(
+            "POST", "/me/player/next", params=_device_params({}, device_id), approval=approval
+        )
 
-    async def previous_track(self, *, device_id: str | None = None) -> None:
+    async def previous_track(
+        self, *, device_id: str | None = None, approval: str | None = None
+    ) -> None:
         """Return to the previous track on the selected device."""
         await self._player_request(
-            "POST", "/me/player/previous", params=_device_params({}, device_id)
+            "POST", "/me/player/previous", params=_device_params({}, device_id), approval=approval
         )
 
-    async def select_device(self, device_id: str, *, play: bool = False) -> None:
+    async def select_device(
+        self, device_id: str, *, play: bool = False, approval: str | None = None
+    ) -> None:
         """Transfer playback control to a visible Spotify device."""
         await self._player_request(
-            "PUT", "/me/player", json={"device_ids": [device_id], "play": play}
+            "PUT", "/me/player", json={"device_ids": [device_id], "play": play}, approval=approval
         )
 
     async def _player_request(
@@ -212,10 +262,13 @@ class SpotifyClient:
         *,
         params: QueryParams | None = None,
         json: Mapping[str, object] | None = None,
+        approval: str | None = None,
     ) -> None:
         """Serialize player mutations and refresh visible state after each one."""
         async with self._player_lock:
-            await self._request(method, path, params=params, json=json, allow_no_content=True)
+            await self._request(
+                method, path, params=params, json=json, allow_no_content=True, approval=approval
+            )
             self.last_playback = await self.current_playback()
 
     async def _request(
@@ -226,8 +279,11 @@ class SpotifyClient:
         params: QueryParams | None = None,
         json: Mapping[str, object] | None = None,
         allow_no_content: bool = False,
+        approval: str | None = None,
     ) -> httpx.Response:
         """Make an authorized request, safely retrying transient GET failures."""
+        if method != "GET" and (path == "/me/player" or path.startswith("/me/player/")):
+            self.approvals.consume(approval, PlayerAction.create(method, path, params, json))
         attempts = self._max_get_attempts if method == "GET" else 1
         for attempt in range(attempts):
             token = await self._authenticator.access_token()
