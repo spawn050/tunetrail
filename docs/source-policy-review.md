@@ -44,3 +44,21 @@ unresolved, the public schema shown above is incomplete, and no representative
 quality, error-rate, or latency measurements have been performed. This is not the
 roadmap's final evidence-based go/no-go decision. ReccoBeats remains unimplemented
 and disabled; no API calls or Spotify data transfers were made for this review.
+
+### Phase 4S documentation review (2026-10-28)
+
+The public [resource ID documentation](https://reccobeats.com/docs/documentation/Resources/resource-id)
+documents retrieval by ReccoBeats or Spotify ID, but not a lookup from an
+independent artist/title, MusicBrainz ID, or ISRC to a ReccoBeats track ID.
+The [audio-features page](https://reccobeats.com/docs/apis/get-audio-features)
+shows `GET /v1/audio-features` but its rendered request and response sections do
+not specify parameters, feature fields, or scales. The
+[track resource](https://reccobeats.com/docs/documentation/Resources/track)
+describes response fields, including Spotify links, but not independent search.
+These pages do not establish a safe end-to-end enrichment contract. Do not infer
+one from examples or send Spotify data to bridge the gap. No API tests were made.
+
+The owner accepts the foundational Spotify-derived metadata tradeoff for this hobby
+project; that decision is not policy clearance. The terms explicitly identify this
+origin and place responsibility for third-party terms on users. Enrichment remains
+disabled until a documented independent lookup and feature contract is established.
