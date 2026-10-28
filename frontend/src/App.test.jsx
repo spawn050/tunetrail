@@ -172,4 +172,21 @@ describe('local interface', () => {
     expect(screen.getByText('Clear lasting preferences saved to your profile.')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalledWith('/api/approval', expect.anything());
   });
+
+  it('sends on Enter, allows Shift+Enter, and refreshes after a player command', async () => {
+    const user = userEvent.setup(); const api = mockApi(); const originalPost = api.post;
+    api.post = vi.fn((path, body) => path === '/api/chat' && body.message === 'pause'
+      ? Promise.resolve({ control: 'pause', requested: true }) : originalPost(path, body));
+    render(<App api={api} />);
+    const input = await screen.findByLabelText('Request or lasting preference');
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, 'first{Shift>}{Enter}{/Shift}second');
+    expect(input).toHaveValue('first\nsecond');
+    expect(api.post).not.toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, 'pause{Enter}');
+    expect(await screen.findByText(/Spotify pause request sent/)).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/api/now-playing').length).toBeGreaterThanOrEqual(2));
+  });
 });

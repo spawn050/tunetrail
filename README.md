@@ -36,6 +36,12 @@ local build from the checkout, not from an installed wheel. The API binds to
 [API guide](docs/phase-4u-api.md) for origin protections, limitations, and
 offline status. Chat sent to a configured hosted LLM leaves the machine.
 
+The chat accepts exact player commands: `pause`, `resume` or `play` (resume),
+`next` or `next track`, and `previous` or `previous track`. Each command
+authorizes that one action on the active Spotify device; these commands are
+handled locally, without the hosted LLM. Other messages do not trigger these
+controls. Enter sends a message; Shift+Enter adds a line.
+
 ## Troubleshooting and data controls
 
 - If the browser cannot connect, start the API from the repository root and use
@@ -47,7 +53,8 @@ offline status. Chat sent to a configured hosted LLM leaves the machine.
 - Open Spotify on an active device and refresh the device list if no device is
   available. Rate limits and network failures may require waiting or retrying a
   read. After a failed playback request, inspect Spotify first: the request might
-  have succeeded. A fresh preview and explicit approval are required for another.
+  have succeeded. Playback previews require a fresh preview and approval; a new
+  chat control command explicitly authorizes another attempt.
 - Chat needs a configured hosted provider and may fail on invalid model output;
   check configuration or rephrase. Chat leaves the machine, but raw chat is not
   persisted by the explicit-profile service.

@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 import httpx
+import pytest
 import respx
 
 from tests.test_spotify_models import track_payload
@@ -37,6 +38,94 @@ class Parser:
                 ChatPreference(subject=PreferenceSubject.ARTIST, name="Artist", strength=1)
             ]
         )
+
+
+@pytest.mark.parametrize(
+    ("message", "action", "method", "path"),
+    [
+        ("Pause!", "pause", "PUT", "pause"),
+        ("play", "resume", "PUT", "play"),
+        ("resume", "resume", "PUT", "play"),
+        ("next track", "next", "POST", "next"),
+        ("previous track", "previous", "POST", "previous"),
+    ],
+)
+@respx.mock
+async def test_explicit_chat_player_controls(
+    tmp_path: Path, message: str, action: str, method: str, path: str
+) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    mutation = respx.request(method, f"https://api.example/v1/me/player/{path}").mock(
+        return_value=httpx.Response(204)
+    )
+    respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        assert (await client.post("/api/chat", json={"message": message})).status_code == 403
+        token = (await client.get("/api/session")).json()["token"]
+        response = await client.post(
+            "/api/chat", headers={"x-tunetrail-token": token}, json={"message": message}
+        )
+        assert response.json() == {"control": action, "requested": True}
+        assert mutation.call_count == 1
+    await services.http.aclose()
+
+
+@respx.mock
+async def test_ambiguous_chat_does_not_control_player(tmp_path: Path) -> None:
+    services = Services(Settings(), tmp_path / "db", tmp_path / "auth")
+    services.parser = Parser()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+        response = await client.post(
+            "/api/chat",
+            headers={"x-tunetrail-token": token},
+            json={"message": "play something after this track"},
+        )
+        assert response.status_code == 200
+        assert "control" not in response.json()
+        assert not respx.calls
+    await services.http.aclose()
+
+
+@respx.mock
+async def test_chat_control_failure_warns_against_blind_retry(tmp_path: Path) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    route = respx.post("https://api.example/v1/me/player/next").mock(
+        return_value=httpx.Response(503)
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+        response = await client.post(
+            "/api/chat", headers={"x-tunetrail-token": token}, json={"message": "next"}
+        )
+        assert response.status_code == 502
+        assert "may have succeeded" in response.json()["detail"]
+        assert route.call_count == 1
+    await services.http.aclose()
 
 
 @respx.mock

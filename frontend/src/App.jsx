@@ -20,6 +20,7 @@ export default function App({ api = apiDefault }) {
   const [conversation, setConversation] = useState([]);
   const [playback, setPlayback] = useState(null);
   const [playbackStatus, setPlaybackStatus] = useState('loading');
+  const [playbackRefresh, setPlaybackRefresh] = useState(0);
   const [query, setQuery] = useState('');
   const [searchKind, setSearchKind] = useState('track');
   const [results, setResults] = useState([]);
@@ -66,7 +67,7 @@ export default function App({ api = apiDefault }) {
     }
     refresh();
     return () => { alive = false; clearTimeout(timer); };
-  }, [api, ready]);
+  }, [api, ready, playbackRefresh]);
 
   useEffect(() => {
     if (spotifySetup?.status !== 'pending') return undefined;
@@ -240,15 +241,26 @@ export default function App({ api = apiDefault }) {
       const submitted = message;
       await invalidate();
       const result = await api.post('/api/chat', { message: submitted });
-      setInterpretation(result); setMessage('');
+      setMessage('');
+      if (result.control) {
+        setConversation((entries) => [...entries, { role: 'user', text: submitted }, { role: 'assistant', text: `Spotify ${result.control} request sent. Check the player for its current state.` }]);
+        setPlaybackRefresh((n) => n + 1);
+        return;
+      }
+      setInterpretation(result);
       const reply = result.clarification ? `Clarification needed: ${result.clarification}` : result.intent?.clarification_needed ? 'Could you clarify your request?' : result.preferences?.length ? 'Clear lasting preferences saved to your profile.' : 'I interpreted your request. Open settings and discovery to continue.';
       setConversation((entries) => [...entries, { role: 'user', text: submitted }, { role: 'assistant', text: reply, intent: result.intent }]);
       await refreshProfile();
     }); }}>
       <label className="sr-only" htmlFor="message">Request or lasting preference</label>
-      <textarea id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} />
+      <textarea id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          if (!e.repeat) e.currentTarget.form.requestSubmit();
+        }
+      }} />
       <button disabled={!ready || busy}>Send chat</button>
-      <p className="disclosure">Messages are sent to your configured hosted AI provider and leave this machine.</p>
+      <p className="disclosure">Enter sends; Shift+Enter adds a line. Use exact commands: pause, play, resume, next track, or previous track. These run locally; other messages go to your configured hosted AI provider.</p>
     </form>
   </main>;
 }

@@ -48,7 +48,7 @@ from tunetrail.recommendation.independent_discovery import (
 )
 from tunetrail.recommendation.ranking import rank_candidates
 from tunetrail.recommendation.spotify_preview import build_preview
-from tunetrail.spotify.approval import ApprovalError
+from tunetrail.spotify.approval import ApprovalError, PlayerAction
 from tunetrail.spotify.client import SpotifyClient
 from tunetrail.spotify.errors import (
     SpotifyApiError,
@@ -66,6 +66,23 @@ class Proposal:
     uris: tuple[str, ...]
     device_id: str | None
     expires: float
+
+
+# Only complete, explicit commands authorize a player mutation. Never infer one
+# from model output or a message containing additional instructions.
+PLAYER_COMMANDS = {
+    "pause": ("pause", "PUT", "/me/player/pause"),
+    "pause playback": ("pause", "PUT", "/me/player/pause"),
+    "resume": ("resume", "PUT", "/me/player/play"),
+    "resume playback": ("resume", "PUT", "/me/player/play"),
+    "play": ("resume", "PUT", "/me/player/play"),
+    "next": ("next", "POST", "/me/player/next"),
+    "next track": ("next", "POST", "/me/player/next"),
+    "skip": ("next", "POST", "/me/player/next"),
+    "skip track": ("next", "POST", "/me/player/next"),
+    "previous": ("previous", "POST", "/me/player/previous"),
+    "previous track": ("previous", "POST", "/me/player/previous"),
+}
 
 
 class Services:
@@ -238,6 +255,31 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
+        command = PLAYER_COMMANDS.get(body.message.casefold().strip().rstrip(".!?"))
+        if command:
+            action, method, path = command
+            try:
+                approval = services.spotify.approvals.propose(
+                    PlayerAction.create(method, path, {}, None)
+                )
+                services.spotify.approvals.approve(approval)
+                method_name = {"next": "next_track", "previous": "previous_track"}.get(
+                    action, action
+                )
+                await getattr(services.spotify, method_name)(approval=approval)
+            except (
+                SpotifyApiError,
+                SpotifyAuthorizationError,
+                httpx.HTTPError,
+                ValueError,
+            ) as error:
+                raise HTTPException(
+                    502,
+                    "Spotify control failed or its status could not be confirmed. "
+                    "Check Spotify, your connection, Premium, and the active device before "
+                    "retrying; the request may have succeeded.",
+                ) from error
+            return {"control": action, "requested": True}
         try:
             parser = (
                 services.parser
