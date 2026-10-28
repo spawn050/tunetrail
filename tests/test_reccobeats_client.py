@@ -257,6 +257,28 @@ async def test_rate_limit_on_feature_request_blocks_next_search() -> None:
     assert len(calls) == 2
 
 
+async def test_shared_http_client_does_not_leak_credentials_or_parameters() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(503)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        auth=("user", "password"),
+        cookies={"token": "secret"},
+        headers={"Authorization": "Bearer secret", "X-Secret": "secret"},
+        params={"token": "secret"},
+    ) as http:
+        await ReccoBeatsEnricher(http).enrich(candidate())
+    assert len(requests) == 1
+    assert "secret" not in str(requests[0].url)
+    assert "authorization" not in requests[0].headers
+    assert "cookie" not in requests[0].headers
+    assert "x-secret" not in requests[0].headers
+
+
 async def test_end_to_end_requests_exclude_provider_spotify_metadata() -> None:
     calls: list[httpx.Request] = []
 

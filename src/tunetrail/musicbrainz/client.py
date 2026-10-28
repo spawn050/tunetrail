@@ -58,7 +58,8 @@ class RateLimiter:
             os.lseek(fd, 0, os.SEEK_SET)
             os.ftruncate(fd, 0)
             os.write(fd, str(time.monotonic()).encode("ascii"))
-            return await client.get(url, params=params, headers={"User-Agent": _USER_AGENT})
+            request = httpx.Request("GET", url, params=params, headers={"User-Agent": _USER_AGENT})
+            return await client.send(request, auth=None, follow_redirects=False)
         finally:
             os.close(fd)
 

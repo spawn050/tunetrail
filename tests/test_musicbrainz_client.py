@@ -58,6 +58,29 @@ async def test_isrc_mapping_and_retry(tmp_path: Path) -> None:
     assert result[0].releases_complete
 
 
+async def test_limiter_does_not_send_shared_client_credentials(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"count": 0, "recordings": []})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        auth=("user", "password"),
+        cookies={"token": "secret"},
+        headers={"Authorization": "Bearer secret", "X-Secret": "secret"},
+        params={"token": "secret"},
+    ) as http:
+        await MusicBrainzClient(http, limiter=RateLimiter(tmp_path / "lock")).search(
+            artist="Artist", title="Song"
+        )
+    assert len(requests) == 1 and "secret" not in str(requests[0].url)
+    assert "authorization" not in requests[0].headers
+    assert "cookie" not in requests[0].headers
+    assert "x-secret" not in requests[0].headers
+
+
 async def test_missing_release_count_is_not_assumed_complete(tmp_path: Path) -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(

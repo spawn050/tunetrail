@@ -122,9 +122,10 @@ class ReccoBeatsEnricher:
         try:
             async with asyncio.timeout(self._timeout):
                 self._last_request = time.monotonic()
-                response = await self._http.get(
-                    _BASE_URL + path, params=params, timeout=self._timeout, follow_redirects=False
-                )
+                # A bare request avoids inheriting a shared client's credentials,
+                # cookies, default parameters or provider-specific headers.
+                request = httpx.Request("GET", _BASE_URL + path, params=params)
+                response = await self._http.send(request, auth=None, follow_redirects=False)
         except (httpx.HTTPError, TimeoutError) as error:
             raise _Unavailable from error
         if response.status_code == 429:
