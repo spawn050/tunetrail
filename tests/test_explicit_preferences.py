@@ -15,7 +15,7 @@ from tunetrail.domain.models import (
     PreferenceSubject,
 )
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
-from tunetrail.recommendation.explicit_profile import ExplicitProfileService
+from tunetrail.recommendation.explicit_profile import ExplicitProfileService, FeedbackResponse
 
 
 def preference(**updates: object) -> ExplicitPreference:
@@ -73,3 +73,31 @@ async def test_chat_service_saves_only_structured_preferences(tmp_path: Path) ->
     assert b"private extra words" not in database.read_bytes()
     await service.reset()
     assert await service.list_preferences() == []
+
+
+async def test_explicit_feedback_skips_are_not_dislikes(tmp_path: Path) -> None:
+    service = ExplicitProfileService(SQLitePersonalizationStore(tmp_path / "profile.sqlite3"))
+    for response in (FeedbackResponse.SKIP, FeedbackResponse.NOT_FAMILIAR):
+        await service.record_feedback(
+            subject=PreferenceSubject.ARTIST,
+            name="Artist",
+            response=response,
+            source=PreferenceSource.SURVEY,
+        )
+    assert await service.list_preferences() == []
+    await service.record_feedback(
+        subject=PreferenceSubject.ARTIST,
+        name="Artist",
+        response=FeedbackResponse.LIKE,
+        source=PreferenceSource.TILE,
+    )
+    await service.record_feedback(
+        subject=PreferenceSubject.ARTIST,
+        name="Artist",
+        response=FeedbackResponse.NOT_FAMILIAR,
+        source=PreferenceSource.SURVEY,
+    )
+    preferences = await service.list_preferences()
+    assert len(preferences) == 1
+    assert preferences[0].polarity is PreferencePolarity.LIKE
+    assert preferences[0].source is PreferenceSource.TILE

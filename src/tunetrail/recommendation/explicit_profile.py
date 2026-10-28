@@ -2,9 +2,25 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Protocol
 
-from tunetrail.domain.models import ChatInterpretation, ExplicitPreference, PreferenceSource
+from tunetrail.domain.models import (
+    ChatInterpretation,
+    ExplicitPreference,
+    PreferencePolarity,
+    PreferenceSource,
+    PreferenceSubject,
+)
+
+
+class FeedbackResponse(StrEnum):
+    """Explicit response to an independently identified suggestion."""
+
+    LIKE = "like"
+    DISLIKE = "dislike"
+    SKIP = "skip"
+    NOT_FAMILIAR = "not_familiar"
 
 
 class PreferenceStore(Protocol):
@@ -53,6 +69,32 @@ class ExplicitProfileService:
     async def list_preferences(self) -> list[ExplicitPreference]:
         """Inspect the independently stored profile."""
         return await self._store.explicit_preferences()
+
+    async def record_feedback(
+        self,
+        *,
+        subject: PreferenceSubject,
+        name: str,
+        response: FeedbackResponse,
+        source: PreferenceSource,
+        artist: str | None = None,
+        musicbrainz_id: str | None = None,
+    ) -> None:
+        """Save an explicit like/dislike, never interpreting a skip as taste."""
+        if source not in (PreferenceSource.DIRECT, PreferenceSource.TILE, PreferenceSource.SURVEY):
+            raise ValueError("Feedback source must be direct, tile or survey")
+        if response in (FeedbackResponse.SKIP, FeedbackResponse.NOT_FAMILIAR):
+            return
+        preference = ExplicitPreference(
+            subject=subject,
+            name=name,
+            artist=artist,
+            musicbrainz_id=musicbrainz_id,
+            polarity=PreferencePolarity(response.value),
+            source=source,
+            updated_at=datetime.now(UTC),
+        )
+        await self._store.set_preferences([preference])
 
     async def reset(self) -> None:
         """Remove the independent profile while preserving legacy data."""

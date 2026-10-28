@@ -6,9 +6,13 @@ from langchain_openrouter import ChatOpenRouter
 from pydantic import SecretStr
 
 from tunetrail.config import Settings
-from tunetrail.domain.models import ListeningIntent
+from tunetrail.domain.models import ChatInterpretation, ListeningIntent
 from tunetrail.domain.protocols import IntentParser
-from tunetrail.llm.intent_parser import StructuredChatModel, StructuredIntentParser
+from tunetrail.llm.intent_parser import (
+    StructuredChatModel,
+    StructuredIntentParser,
+    StructuredPreferenceParser,
+)
 
 
 class ChatModel(Protocol):
@@ -29,6 +33,28 @@ class OpenRouterLLMFactory:
 
     def create_intent_parser(self) -> IntentParser:
         """Create a schema-bound parser without exposing LLM access to the graph."""
+        model = self._create_model()
+        structured = cast(
+            object,
+            model.with_structured_output(ListeningIntent),  # type: ignore[reportUnknownMemberType]
+        )
+        return StructuredIntentParser(
+            cast(StructuredChatModel, structured), max_retries=self._settings.llm_max_retries
+        )
+
+    def create_preference_parser(self) -> StructuredPreferenceParser:
+        """Build the structured parser for the independent chat profile."""
+        model = self._create_model()
+        structured = cast(
+            object,
+            model.with_structured_output(ChatInterpretation),  # type: ignore[reportUnknownMemberType]
+        )
+        return StructuredPreferenceParser(
+            cast(StructuredChatModel, structured), max_retries=self._settings.llm_max_retries
+        )
+
+    def _create_model(self) -> ChatOpenRouter:
+        """Validate settings before constructing a network-capable model."""
         if self._settings.llm_provider != "openrouter":
             raise LLMConfigurationError(
                 f"LLM provider '{self._settings.llm_provider}' is not implemented yet. "
@@ -40,7 +66,7 @@ class OpenRouterLLMFactory:
             )
         if self._settings.llm_model is None:
             raise LLMConfigurationError("Set TUNETRAIL_LLM_MODEL in .env for natural language.")
-        model = ChatOpenRouter(
+        return ChatOpenRouter(
             api_key=SecretStr(self._settings.openrouter_api_key),
             model=self._settings.llm_model,
             temperature=self._settings.llm_temperature,
@@ -48,11 +74,4 @@ class OpenRouterLLMFactory:
             openrouter_provider={
                 "data_collection": "allow" if self._settings.llm_allow_data_collection else "deny"
             },
-        )
-        structured = cast(
-            object,
-            model.with_structured_output(ListeningIntent),  # type: ignore[reportUnknownMemberType]
-        )
-        return StructuredIntentParser(
-            cast(StructuredChatModel, structured), max_retries=self._settings.llm_max_retries
         )
