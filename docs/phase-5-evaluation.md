@@ -25,6 +25,8 @@ The test checks the exact fixture outcomes, rank order, positive and negative
 preference signals, score explanations, unknown features, match evidence and
 outage reports. Other existing Phase 4S/4T tests cover bounded discovery,
 enrichment, feature scales, duplicates, unsupported constraints and ambiguity.
+An additional case checks that an unverifiable year blocks approval even for a
+matched track and that conflicting candidates sharing a recording ID are excluded.
 These hand-authored cases are **not independently reviewed**, representative of
 real provider catalogs, or evidence of real-world coverage, matching accuracy or
 recommendation quality. Independent review remains outstanding. No statistical
@@ -44,11 +46,25 @@ obtain seeds independently and must not translate Spotify-derived data.
 
 The React interaction suite mocks the API. It covers chat, discovery, feedback,
 survey, preview, cancellation, approval, ambiguous chat and unavailable search.
-The backend suite separately mocks providers. They are **not a single browser-to-
-backend end-to-end test**, and no real-browser acceptance has been performed; that
-integrated offline evidence remains open. Legacy modules and fixtures are not
-evidence for the redesigned flow; legacy generic MusicBrainz lookup and Spotify
-resolver must not be wired into independent discovery.
+Additionally, `tests/test_phase5_browser.py` drives the built React interface in
+headless Firefox against the actual local API and a temporary database. The chat
+parser and discovery source are synthetic; all Spotify HTTP requests use a mock
+transport that rejects unexpected requests. It checks chat preference, discovery,
+ranking explanation, cancellation, single-use approval, and a simulated search
+outage. Player mutations are mocked. This is a real-browser **offline regression**,
+not live-provider or real-device acceptance; it does not cover every workflow.
+
+To run it, install Firefox and geckodriver, install project dev dependencies with
+`uv sync --extra dev`, build the frontend with `npm ci && npm run build` in `frontend/`, and run
+`TUNETRAIL_BROWSER_TEST=1 uv run pytest -q tests/test_phase5_browser.py` from the
+repository root. It is skipped by default so ordinary test runs do not require a
+browser; an opted-in run fails if its prerequisites are missing. The browser is
+configured to proxy non-loopback HTTP(S) traffic to a closed local port. The test
+uses temporary synthetic credentials and never accesses the owner's profile.
+
+Legacy modules and fixtures are not evidence for the redesigned flow; legacy
+generic MusicBrainz lookup and Spotify resolver must not be wired into independent
+discovery.
 
 ## External evidence and authorization
 
