@@ -1,12 +1,8 @@
 """Factories for valid domain objects used by tests."""
 
-from datetime import UTC, datetime
-
 from tunetrail.domain.models import (
     Candidate,
     CandidateSource,
-    Feedback,
-    FeedbackKind,
     ListeningIntent,
     ResolvedTrack,
 )
@@ -43,14 +39,3 @@ def resolved_track(**changes: object) -> ResolvedTrack:
 def intent(**changes: object) -> ListeningIntent:
     """Build a valid listening intent with optional field overrides."""
     return ListeningIntent.model_validate(changes)
-
-
-def feedback(**changes: object) -> Feedback:
-    """Build valid explicit feedback with optional field overrides."""
-    values: dict[str, object] = {
-        "kind": FeedbackKind.LIKE,
-        "spotify_uri": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
-        "created_at": datetime.now(UTC),
-    }
-    values.update(changes)
-    return Feedback.model_validate(values)

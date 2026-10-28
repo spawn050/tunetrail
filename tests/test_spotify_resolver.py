@@ -28,7 +28,7 @@ class FakeSpotify:
 def lastfm_candidate(**changes: object) -> Candidate:
     """Build one external Last.fm suggestion with source-specific provenance."""
     values: dict[str, object] = {
-        "source": CandidateSource.LASTFM,
+        "source": CandidateSource.MUSICBRAINZ,
         "source_id": "lastfm-track",
         "title": "Love Story",
         "artists": ["Taylor Swift"],
@@ -57,7 +57,7 @@ async def test_resolver_preserves_lastfm_evidence_after_high_confidence_spotify_
     resolved = await resolver.resolve(lastfm_candidate())
 
     assert resolved is not None
-    assert resolved.source is CandidateSource.LASTFM
+    assert resolved.source is CandidateSource.MUSICBRAINZ
     assert resolved.source_id == "spotify-track"
     assert resolved.isrc == "USABC1234567"
     assert resolved.provenance["lastfm_url"] == "https://last.fm/track"

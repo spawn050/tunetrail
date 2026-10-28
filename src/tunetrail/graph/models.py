@@ -28,7 +28,7 @@ class RequestOutcome(StrEnum):
 
 
 class RequestGraphResult(BaseModel):
-    """A safe, inspectable graph result for the TUI to render."""
+    """A structured result for a future approval-gated request flow."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

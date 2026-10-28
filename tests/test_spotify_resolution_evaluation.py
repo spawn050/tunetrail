@@ -54,7 +54,9 @@ async def test_labelled_resolution_cases() -> None:
     cases = [Case.model_validate(row) for row in cast(list[object], data)]
     correct = incorrect = missed = 0
     for case in cases:
-        external = candidate(source="lastfm", source_id=case.name, **case.external.model_dump())
+        external = candidate(
+            source="musicbrainz", source_id=case.name, **case.external.model_dump()
+        )
         results = [
             candidate(
                 source_id=row.id,

@@ -3,10 +3,8 @@
 from tunetrail.domain.models import (
     Candidate,
     Device,
-    Feedback,
     ListeningIntent,
     PlaybackState,
-    ProfileSummary,
     QueueItem,
     QueuePreview,
     ResolvedTrack,
@@ -15,10 +13,8 @@ from tunetrail.domain.models import (
 __all__ = [
     "Candidate",
     "Device",
-    "Feedback",
     "ListeningIntent",
     "PlaybackState",
-    "ProfileSummary",
     "QueueItem",
     "QueuePreview",
     "ResolvedTrack",

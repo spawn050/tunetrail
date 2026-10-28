@@ -28,7 +28,6 @@ class CandidateSource(StrEnum):
     """A service or local source that suggested a candidate."""
 
     SPOTIFY = "spotify"
-    LASTFM = "lastfm"
     MUSICBRAINZ = "musicbrainz"
     RECCOBEATS = "reccobeats"
     LOCAL = "local"
@@ -41,17 +40,6 @@ class CatalogItemKind(StrEnum):
     ARTIST = "artist"
     ALBUM = "album"
     PLAYLIST = "playlist"
-
-
-class FeedbackKind(StrEnum):
-    """Explicit feedback a listener can provide for a track or queue."""
-
-    LIKE = "like"
-    DISLIKE = "dislike"
-    MORE_LIKE_THIS = "more_like_this"
-    LESS_LIKE_THIS = "less_like_this"
-    TOO_FAMILIAR = "too_familiar"
-    TOO_DISTRACTING = "too_distracting"
 
 
 class ActionOutcome(StrEnum):
@@ -352,52 +340,6 @@ class ActionHistoryEntry(BaseModel):
         if any(not uri.startswith("spotify:track:") for uri in unique):
             raise ValueError("action history can contain only Spotify track URIs")
         return unique
-
-
-class Feedback(BaseModel):
-    """An explicit local listening preference."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
-
-    kind: FeedbackKind
-    spotify_uri: str = Field(pattern=r"^spotify:track:[A-Za-z0-9]+$")
-    created_at: AwareDatetime
-    note: str | None = Field(default=None, max_length=500)
-
-
-class ProfileSummary(BaseModel):
-    """A compact, local-only summary of taste signals."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
-
-    favorite_artists: list[NonEmptyText] = Field(default_factory=list)
-    favorite_track_uris: list[str] = Field(default_factory=list)
-    recent_track_uris: list[str] = Field(default_factory=list)
-    summary: str | None = Field(default=None, max_length=2_000)
-    updated_at: AwareDatetime
-
-
-class PlaylistSignal(BaseModel):
-    """A user-approved Spotify playlist reference used as a taste signal."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
-
-    spotify_playlist_id: NonEmptyText
-    display_name: NonEmptyText
-    owner_id: str | None = None
-    selected_at: AwareDatetime
-    last_ingested_at: AwareDatetime | None = None
-
-
-class LastfmProfile(BaseModel):
-    """Bounded normalized public Last.fm signals for optional local enrichment."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    top_artists: list[NonEmptyText] = Field(default_factory=list)
-    top_tracks: list[Candidate] = Field(default_factory=list[Candidate])
-    recent_tracks: list[Candidate] = Field(default_factory=list[Candidate])
-    updated_at: AwareDatetime
 
 
 Timestamp = datetime

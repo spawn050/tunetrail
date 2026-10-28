@@ -20,8 +20,7 @@ class Settings(BaseModel):
     spotify_api_url: str = "https://api.spotify.com/v1"
     spotify_scopes: str = (
         "user-read-private user-read-playback-state user-read-currently-playing "
-        "user-modify-playback-state user-top-read user-read-recently-played "
-        "playlist-read-private playlist-read-collaborative"
+        "user-modify-playback-state"
     )
     llm_provider: Literal["openrouter", "anthropic", "openai"] = "openrouter"
     llm_model: str | None = None
@@ -29,10 +28,6 @@ class Settings(BaseModel):
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     llm_allow_data_collection: bool = False
     openrouter_api_key: str | None = None
-    lastfm_api_key: str | None = None
-    lastfm_username: str | None = None
-    lastfm_api_url: str = "https://ws.audioscrobbler.com/2.0/"
-    musicbrainz_enabled: bool = False
     request_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

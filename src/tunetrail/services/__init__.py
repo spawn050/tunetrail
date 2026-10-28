@@ -1,1 +1,1 @@
-"""Pure application services used by the TUI and future request graph."""
+"""Pure application service foundations for the future local backend."""

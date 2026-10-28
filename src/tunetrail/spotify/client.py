@@ -27,7 +27,6 @@ from tunetrail.spotify.errors import (
 from tunetrail.spotify.models import (
     SpotifyPayloadError,
     SpotifyUser,
-    artist_names_from_values,
     catalog_item_from_album,
     catalog_item_from_artist,
     catalog_item_from_playlist,
@@ -94,53 +93,6 @@ class SpotifyClient:
         """Search the Spotify catalog for at most ten tracks."""
         catalog_items = await self.search_catalog(query, kind=CatalogItemKind.TRACK, limit=limit)
         return [item.track.candidates[0] for item in catalog_items if item.track is not None]
-
-    async def top_tracks(
-        self, time_range: Literal["short_term", "medium_term", "long_term"], *, limit: int = 50
-    ) -> Sequence[ResolvedTrack]:
-        """Return the user's Spotify top tracks for one documented affinity window."""
-        payload = _response_mapping(
-            await self._request(
-                "GET", "/me/top/tracks", params={"time_range": time_range, "limit": limit}
-            )
-        )
-        return resolved_tracks_from_items(payload)
-
-    async def top_artists(
-        self, time_range: Literal["short_term", "medium_term", "long_term"], *, limit: int = 50
-    ) -> Sequence[str]:
-        """Return the user's Spotify top artist names for one affinity window."""
-        payload = _response_mapping(
-            await self._request(
-                "GET", "/me/top/artists", params={"time_range": time_range, "limit": limit}
-            )
-        )
-        values = payload.get("items")
-        if not isinstance(values, list):
-            raise SpotifyPayloadError("Spotify top artists response was malformed")
-        return artist_names_from_values(cast(list[object], values))
-
-    async def recently_played_tracks(self, *, limit: int = 50) -> Sequence[ResolvedTrack]:
-        """Return recent Spotify tracks for local repetition avoidance only."""
-        payload = _response_mapping(
-            await self._request("GET", "/me/player/recently-played", params={"limit": limit})
-        )
-        return resolved_tracks_from_items(payload)
-
-    async def user_playlists(self, *, limit: int = 50) -> Sequence[CatalogItem]:
-        """Return the first page of owned/collaborative playlists for explicit opt-in only."""
-        if not 1 <= limit <= 50:
-            raise ValueError("Spotify playlist limit must be between 1 and 50")
-        payload = _response_mapping(
-            await self._request("GET", "/me/playlists", params={"limit": limit})
-        )
-        values = payload.get("items")
-        if not isinstance(values, list):
-            raise SpotifyPayloadError("Spotify playlists response was malformed")
-        return [
-            catalog_item_from_playlist(_mapping_or_error(value))
-            for value in cast(list[object], values)
-        ]
 
     async def search_catalog(
         self, query: str, *, kind: CatalogItemKind, limit: int = 10
