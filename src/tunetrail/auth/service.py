@@ -114,9 +114,9 @@ class SpotifyAuthenticator:
                 refresh_token=token.refresh_token,
             )
         except SpotifyAuthorizationError as error:
-            await self._credentials.clear()
             raise SpotifyNotAuthenticatedError(
-                "Spotify authorization expired or was revoked. Sign in again."
+                "Spotify token refresh failed. Existing credentials were preserved; "
+                "check the connection or sign in again."
             ) from error
 
     async def logout(self) -> None:

@@ -107,8 +107,8 @@ async def test_logout_removes_saved_token(tmp_path: Path) -> None:
 
 
 @respx.mock
-async def test_revoked_refresh_token_is_removed_and_requires_sign_in(tmp_path: Path) -> None:
-    """A rejected refresh token cannot leave an unusable local session behind."""
+async def test_rejected_refresh_preserves_credentials(tmp_path: Path) -> None:
+    """A rejected refresh does not delete existing credentials."""
     store = FileCredentialStore(tmp_path / "auth.json")
     await store.save_token(
         OAuthToken(
@@ -125,7 +125,8 @@ async def test_revoked_refresh_token_is_removed_and_requires_sign_in(tmp_path: P
     )
     async with httpx.AsyncClient() as client:
         service = authenticator(tmp_path / "auth.json", client)
-        with pytest.raises(SpotifyNotAuthenticatedError, match="Sign in again"):
+        with pytest.raises(SpotifyNotAuthenticatedError, match="credentials were preserved"):
             await service.access_token()
 
-    assert await store.load_token() is None
+    token = await store.load_token()
+    assert token is not None and token.refresh_token == "revoked-refresh-token"
