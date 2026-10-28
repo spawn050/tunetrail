@@ -23,9 +23,9 @@ provider-policy clearance is implied by this plan.
 
 ### Goals
 
-- Control an active Spotify device from a keyboard-first TUI.
+- Review and approve playback on an active Spotify device from a local browser interface.
 - Translate natural-language requests into validated listening constraints.
-- Create personalized queues using listening history and explicit feedback.
+- Create personalized queues using independently supplied preferences and explicit feedback.
 - Support optional music-discovery sources without making them required.
 - Explain why tracks were selected.
 - Keep user profile data local by default.
@@ -38,34 +38,35 @@ provider-policy clearance is implied by this plan.
 - Unattended playback changes made by an autonomous agent.
 - Replacing Spotify’s native recommendation system.
 
-## Core Architecture
+## Target Architecture
+
+This architecture is planned, not the current implementation. The existing Textual
+TUI is archived legacy code, retained without relocation for now; no new TUI
+features are planned. The existing entry point and Spotify-first flow remain legacy
+until replaced. See `docs/phase-4r-data-flow.md` for current boundary limitations.
 
 ```text
-┌─────────────┐
-│ Textual TUI │
-└──────┬──────┘
-       │
-┌──────▼──────────────────┐
-│ Application / Services   │
-├─────────────────────────┤
-│ LangGraph request graph │
-│ Spotify gateway          │
-│ Recommendation service   │
-│ LLM provider factory     │
-│ SQLite repositories      │
-└──────┬──────────────────┘
-       │
- ┌─────┴────────────────────────────────────┐
- │ Spotify │ Last.fm │ MusicBrainz │ ReccoBeats │
- └──────────────────────────────────────────┘
+Local React browser interface
+  → localhost Python API (credentials remain server-side)
+    → structured chat + explicit preference service → local SQLite
+    → independent discovery → MusicBrainz / provisional ReccoBeats features
+    → TuneTrail ranking → conservative Spotify resolution → reviewable preview
+    → explicit approval → Spotify playback / queue action
 ```
+
+Never send Spotify identifiers or Spotify-derived metadata to MusicBrainz or
+ReccoBeats. Last.fm and passive listening history are deferred. ReccoBeats feature
+use remains provisional and does not imply provider-policy clearance. Hosted LLM
+requests leave the machine; raw chat is not persisted by the new profile service.
 
 ### Technology choices
 
 | Area | Choice |
 | --- | --- |
 | Language | Python 3.12+ |
-| TUI | Textual |
+| Frontend | React, local browser |
+| Backend | Local Python API; framework to be selected in Phase 4U |
+| Legacy interface | Textual TUI, archived and retained for reference |
 | Workflow orchestration | LangGraph |
 | Default LLM gateway | OpenRouter via `langchain-openrouter` |
 | Future direct LLMs | Anthropic and OpenAI adapters |
@@ -80,22 +81,22 @@ provider-policy clearance is implied by this plan.
 
 ```text
 Natural-language request
-  → LLM parses a structured ListeningIntent
-  → validate constraints / ask clarification if necessary
-  → load local taste profile and current session context
-  → retrieve Spotify baseline candidates
-  → optionally enrich or expand from external sources
-  → resolve every candidate to a playable Spotify track
-  → apply deterministic ranking, diversity, and repetition rules
+  → classify temporary intent and explicit lasting preferences; clarify ambiguity
+  → save clear preferences locally, without raw chat
+  → generate independent candidates and optionally enrich with source-labelled features
+  → apply TuneTrail ranking, constraints, diversity, and bounded repetition rules
+  → conservatively resolve selected candidates to playable Spotify tracks
   → display a queue preview and explanations
   → user approves, edits, regenerates, or cancels
   → execute Spotify playback action
-  → save local feedback and session signals
+  → record only explicit feedback as preference; playback is not proof of listening
 ```
 
 The LLM never invents final track IDs or directly mutates Spotify state. Candidate matching, ranking, and player actions remain deterministic application code.
 
 ## LangGraph Design
+
+The following graph describes the legacy implementation, not the target flow above.
 
 ```text
 START
@@ -457,7 +458,7 @@ and can send Spotify-derived candidate metadata to MusicBrainz. See
 - [ ] Add chat, artist/track search, clickable lasting like/dislike tiles, and clearly labelled suggested music.
 - [ ] Add optional, initially deterministic surveys with like, dislike, not familiar, and skip; do not invent catalog entries.
 - [ ] Show immediate profile updates, profile contents and reset controls, and a reviewable Spotify playback preview with explicit play/queue approval.
-- [ ] Retain the existing TUI during the transition; decide whether to retire it after the browser interface covers the required flows.
+- [ ] Keep the archived TUI only for reference; do not develop new TUI features. Decide its eventual removal separately.
 - [ ] Test the local interface and complete mocked request-to-approval flow.
 
 **Phase gate:** the local React interface supports the mocked flow from preferences to an approved playback request.
