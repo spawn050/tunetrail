@@ -59,3 +59,7 @@ class ProposalInput(Input):
 
 class ApprovalInput(ProposalInput):
     explicitly_approve: Literal[True]
+
+
+class ResetInput(Input):
+    confirm_reset: Literal[True]
