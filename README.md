@@ -41,6 +41,7 @@ If an existing database has an incompatible profile schema, the profile store st
 without modifying it. Ask the owner how to handle the existing file before replacing,
 deleting, or moving data; no automatic migration is performed. Profile reset removes
 only explicit preference rows, not credentials, exports, legacy records or caches.
-Retained Spotify authentication and player modules require boundary review before
-reuse: failed token refresh currently deletes the credential file, and player methods
-do not enforce approval themselves. See `docs/phase-4r-data-flow.md`.
+Phase 4T adds offline-tested ranking, Spotify previews and single-use player approval;
+failed Spotify token refresh preserves existing credentials. See
+`docs/phase-4t-ranking.md` for limits and approval responsibilities. The Phase 4R
+data-flow audit describes the historical state before these changes.

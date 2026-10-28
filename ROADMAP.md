@@ -447,12 +447,19 @@ provider-policy questions remain unverified; no live API tests were run. See
 
 **Goal:** rank independent candidates and produce reviewable Spotify playback previews.
 
-- [ ] Rank deterministically using explicit preferences, request constraints, available source-labelled audio features, independent metadata, diversity, and bounded repetition avoidance.
-- [ ] Explain actual ranking signals; avoid presenting recommendations, approvals, or playback requests as listens. Report unsupported hard constraints and treat missing features as unknown.
-- [ ] Resolve ranked candidates conservatively to playable Spotify versions, display match details, and handle ambiguity or insufficient results transparently.
-- [ ] Preserve explicit approval before all playback and queue mutations; test cancellation, source outages, uncertain matches, and approval with mocked services.
+- [x] Rank deterministically using explicit preferences, request constraints, available source-labelled audio features, independent metadata, diversity, and bounded repetition avoidance.
+- [x] Explain actual ranking signals; avoid presenting recommendations, approvals, or playback requests as listens. Report unsupported hard constraints and treat missing features as unknown.
+- [x] Resolve ranked candidates conservatively to playable Spotify versions, display match details, and handle ambiguity or insufficient results transparently.
+- [x] Preserve explicit approval before all playback and queue mutations; test cancellation, source outages, uncertain matches, and approval with mocked services.
 
 **Phase gate:** synthetic and mocked end-to-end requests yield explainable previews without playback or queue mutations before approval.
+
+**Phase 4T offline gate met:** ranking, conservative Spotify resolution and exact,
+single-use player approvals are covered by mocked tests. Previews expose match details
+for later UI display; no UI or local API is included in this phase. Unsupported
+constraints block approvable proposals and source failures can yield fewer matches.
+No live provider or playback acceptance tests were run. See `docs/phase-4t-ranking.md`
+for supported signals, constraints, approval responsibilities and limitations.
 
 ### Phase 4U — Local backend API
 
