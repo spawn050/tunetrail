@@ -34,9 +34,12 @@ def preference(**updates: object) -> ExplicitPreference:
 async def test_profile_roundtrip_update_reset_and_legacy_isolation(tmp_path: Path) -> None:
     store = SQLitePersonalizationStore(tmp_path / "profile.sqlite3")
     with sqlite3.connect(tmp_path / "profile.sqlite3") as connection:
-        assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='profile_summary'"
-        ).fetchone() is None
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='profile_summary'"
+            ).fetchone()
+            is None
+        )
         connection.execute("CREATE TABLE feedback (spotify_uri TEXT, kind TEXT, created_at TEXT)")
         connection.execute(
             "INSERT INTO feedback (spotify_uri, kind, created_at) VALUES (?, ?, ?)",
