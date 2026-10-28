@@ -42,8 +42,8 @@ provider-policy clearance is implied by this plan.
 
 This architecture is planned, not the current implementation. The legacy TUI,
 entry point and Spotify-first personalization orchestration have been removed.
-The local API is implemented in Phase 4U; there is no user-facing application until
-the React UI is implemented. Existing local data and credentials remain untouched; lower-level
+The local API and React UI have passed their offline gates. Existing local data and
+credentials remain untouched; lower-level
 legacy provider and storage modules still require review before reuse.
 
 ```text
@@ -484,13 +484,21 @@ caller, and provider-policy questions remain unresolved. See `docs/phase-4u-api.
 
 **Goal:** provide a local browser interface for chat, discovery, feedback, and approved playback.
 
-- [ ] Add chat, artist/track search, clickable lasting like/dislike tiles, and clearly labelled suggested music.
-- [ ] Add optional, initially deterministic surveys with like, dislike, not familiar, and skip; do not invent catalog entries.
-- [ ] Show immediate profile updates, profile contents and reset controls, and a reviewable Spotify playback preview with explicit play/queue approval.
-- [ ] Provide the React interface as the only planned UI; the legacy TUI has been removed.
-- [ ] Test the local interface and complete mocked request-to-approval flow.
+- [x] Add chat, artist/track search, clickable lasting like/dislike tiles, and clearly labelled suggested music.
+- [x] Add optional, initially deterministic surveys with like, dislike, not familiar, and skip; do not invent catalog entries.
+- [x] Show immediate profile updates, profile contents and reset controls, and a reviewable Spotify playback preview with explicit play/queue approval.
+- [x] Provide the React interface as the only planned UI; the legacy TUI has been removed.
+- [x] Test the local interface and complete mocked request-to-approval flow.
 
 **Phase gate:** the local React interface supports the mocked flow from preferences to an approved playback request.
+
+**Phase 4V offline gate met:** the same-origin React interface covers chat,
+Spotify catalog search, independent-ID discovery, deterministic feedback surveys,
+profile controls, device selection and reviewable single-use playback approval.
+Interface tests mock the API; separate backend integration tests mock providers.
+No live provider, real-browser acceptance or playback tests were performed. Spotify
+sign-in remains unavailable and discovery requires independently obtained MusicBrainz
+IDs. See `docs/phase-4v-interface.md`; provider-policy questions remain open.
 
 ### Phase 5 — Redesigned evaluation and acceptance
 

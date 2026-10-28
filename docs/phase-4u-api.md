@@ -2,8 +2,8 @@
 
 Run `uv run python -m tunetrail.api` on the local machine. The server binds only
 `127.0.0.1:8766`; it is not intended for public deployment, reverse proxies exposed
-to a network, or multiple users. Access logging is disabled. This phase provides no
-React interface and no Spotify sign-in endpoint. Spotify operations require an
+to a network, or multiple users. Access logging is disabled. Phase 4V adds a React
+interface served from this origin; there is no Spotify sign-in endpoint. Spotify operations require an
 existing local credential and configured client ID; this API does not delete or
 replace credentials. Provider access and playback have not been tested live.
 
@@ -28,7 +28,8 @@ must be served through the same origin or deliberately revisit this security des
   `{ "confirm_reset": true }` and removes only explicit preference rows.
 - `POST /api/feedback`: record an explicit like or dislike; skip and not-familiar
   do not overwrite preferences.
-- `GET /api/search?q=...` searches Spotify tracks; `GET /api/devices` lists devices.
+- `GET /api/search?q=...` searches Spotify tracks; `GET /api/catalog-search?q=...&kind=track|artist`
+  provides catalog results for the interface; `GET /api/devices` lists devices.
   Spotify search results must never be used as external discovery inputs.
 - `POST /api/discovery`: supply up to five `{ "kind": "artist" | "recording",
   "musicbrainz_id": "..." }` seeds, a `limit` of 1–20 and

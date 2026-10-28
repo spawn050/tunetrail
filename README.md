@@ -1,13 +1,13 @@
 # TuneTrail
 
 TuneTrail is being redesigned as a local, personal music discovery application.
-The planned React interface and local Python API will use explicit preferences,
+The React interface and local Python API use explicit preferences,
 independent discovery, TuneTrail ranking and Spotify playback with user approval.
 See [the roadmap](ROADMAP.md) for the active phases and their status.
 
-**Current status:** the Phase 4U local API is available, but there is no browser
-interface yet. The legacy terminal interface and its Spotify-derived personalization
-workflow have been removed; React is planned for Phase 4V.
+**Current status:** the local React interface and API have passed mocked offline
+checks. The legacy terminal interface and its Spotify-derived personalization
+workflow have been removed. Live behavior has not been verified.
 
 ## Development
 
@@ -19,14 +19,26 @@ uv run ruff format --check .
 uv run pyright
 ```
 
-Run the API locally with `uv run python -m tunetrail.api`; it binds to
-`127.0.0.1:8766`. See [the API guide](docs/phase-4u-api.md) for its local-origin
-protections, operations, Spotify authentication limitation, and offline status.
-Chat sent to a configured hosted LLM leaves the machine.
+Build the interface from the repository checkout (Node.js 20.19+ or 22.12+):
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+cd ..
+uv run python -m tunetrail.api
+```
+
+Open `http://127.0.0.1:8766/`. Build before starting the server; it serves the
+local build from the checkout, not from an installed wheel. The API binds to
+`127.0.0.1:8766`. See [the interface guide](docs/phase-4v-interface.md) and
+[API guide](docs/phase-4u-api.md) for origin protections, limitations, and
+offline status. Chat sent to a configured hosted LLM leaves the machine.
 
 The existing Spotify authentication and provider modules are retained for review
-and possible reuse. Their presence does not mean the redesigned app is integrated
-or that provider policies have been cleared. Live read-only tests require separate
+and possible reuse. Their presence does not mean provider policies have been cleared.
+Live read-only tests require separate
 owner authorization; playback acceptance and every playback or queue mutation
 require explicit approval.
 
