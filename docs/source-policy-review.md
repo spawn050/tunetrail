@@ -45,20 +45,23 @@ quality, error-rate, or latency measurements have been performed. This is not th
 roadmap's final evidence-based go/no-go decision. ReccoBeats remains unimplemented
 and disabled; no API calls or Spotify data transfers were made for this review.
 
-### Phase 4S documentation review (2026-10-28)
+### Phase 4S documentation correction (2026-10-28)
 
-The public [resource ID documentation](https://reccobeats.com/docs/documentation/Resources/resource-id)
-documents retrieval by ReccoBeats or Spotify ID, but not a lookup from an
-independent artist/title, MusicBrainz ID, or ISRC to a ReccoBeats track ID.
-The [audio-features page](https://reccobeats.com/docs/apis/get-audio-features)
-shows `GET /v1/audio-features` but its rendered request and response sections do
-not specify parameters, feature fields, or scales. The
-[track resource](https://reccobeats.com/docs/documentation/Resources/track)
-describes response fields, including Spotify links, but not independent search.
-These pages do not establish a safe end-to-end enrichment contract. Do not infer
-one from examples or send Spotify data to bridge the gap. No API tests were made.
+The previous review missed the dynamically rendered API specification. The public
+[track search](https://reccobeats.com/docs/apis/search-tracks) documentation's
+client-side specification describes `GET /v1/track/search`: required `searchText`
+(track title, 3–1,000 characters), optional `artist` (3–1,000 characters), and
+bounded `page` and `size`. Results contain track IDs, titles, artists, duration and
+optional ISRC, as well as Spotify links that must not be forwarded. The
+[per-track features](https://reccobeats.com/docs/apis/get-track-audio-features)
+specification documents `GET /v1/track/{id}/audio-features`, requiring a ReccoBeats
+ID and describing feature fields and scales. An independent title/artist search is
+therefore possible, though catalog coverage and match reliability are not established.
+Short titles and artist names cannot be queried with these documented parameters.
+No live API tests were made.
 
 The owner accepts the foundational Spotify-derived metadata tradeoff for this hobby
 project; that decision is not policy clearance. The terms explicitly identify this
-origin and place responsibility for third-party terms on users. Enrichment remains
-disabled until a documented independent lookup and feature contract is established.
+origin and place responsibility for third-party terms on users. The earlier no-go
+record above is historical; the owner has approved provisional feature enrichment
+with independent inputs, not policy clearance or live testing.
