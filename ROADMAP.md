@@ -425,13 +425,23 @@ prove real-world LLM accuracy, live behavior, or provider-policy clearance.
 **Goal:** generate independently identified candidates and enrich them with available ReccoBeats audio-feature estimates.
 
 - [ ] Use independently supplied seeds and MusicBrainz identity/metadata to generate bounded candidates; evaluate practical expansion and ask for more seeds or return fewer results when coverage is insufficient.
-- [ ] Confirm the documented ReccoBeats lookup and feature contract, including whether reliable independent-input-to-ReccoBeats-ID lookup is possible, before implementing an adapter; do not assume undocumented parameters.
+- [x] Review the documented ReccoBeats lookup and feature contract, including whether reliable independent-input-to-ReccoBeats-ID lookup is possible, before implementing an adapter; do not assume undocumented parameters. The required contract remains unconfirmed and the adapter is disabled.
 - [ ] Never send Spotify IDs, URIs, or Spotify-derived metadata to ReccoBeats or MusicBrainz, including during ID translation; conservatively reject ambiguous matches.
 - [ ] Implement optional, failure-tolerant ReccoBeats feature enrichment with bounded caching, timeouts, rate-limit handling, and provenance. Treat missing features as unknown and preserve source-specific scales.
-- [ ] Document that ReccoBeats says its foundational track metadata is Spotify-derived; using it is a deliberate departure from a fully Spotify-independent provenance goal, not policy clearance.
+- [x] Document that ReccoBeats says its foundational track metadata is Spotify-derived; using it is a deliberate departure from a fully Spotify-independent provenance goal, not policy clearance.
 - [ ] Test candidate generation, matching, source failures, feature availability, and outbound boundaries offline with synthetic or mocked data.
 
 **Phase gate:** mocked tests demonstrate bounded candidate generation and feature enrichment without sending Spotify-derived data to external sources; unresolved contract and policy findings are recorded honestly.
+
+**In progress:** independent MusicBrainz UUID seeds can produce a bounded page of
+recordings, with source failures and insufficient coverage reported. Name-only seeds
+require an independently selected MusicBrainz ID; there is no namesake search UI or
+similar-artist expansion. The seed contract relies on callers to supply genuinely
+independent IDs, not Spotify-derived translations. The generic legacy lookup remains
+outside this boundary and is not safe to wire into the new flow. Public ReccoBeats
+documentation did not establish an independent-ID lookup or a complete audio-feature
+contract; enrichment remains unavailable and the phase gate stays open. See
+`docs/phase-4s-discovery.md` and `docs/source-policy-review.md`.
 
 ### Phase 4T — TuneTrail ranking and Spotify resolution
 

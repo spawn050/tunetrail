@@ -31,6 +31,11 @@ cleanup. Legacy records must remain isolated from the new explicit profile until
 the owner decides how to handle them. Chat sent to a hosted LLM leaves the machine;
 the explicit-profile service does not persist raw chat.
 
+Phase 4S has an offline-tested, bounded MusicBrainz discovery foundation using
+independently supplied MusicBrainz IDs. It does not resolve namesakes automatically.
+ReccoBeats enrichment remains unavailable because its independent lookup and feature
+contract are not established; see `docs/phase-4s-discovery.md`.
+
 If an existing database has an incompatible profile schema, the profile store stops
 without modifying it. Ask the owner how to handle the existing file before replacing,
 deleting, or moving data; no automatic migration is performed. Profile reset removes
