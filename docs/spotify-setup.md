@@ -71,7 +71,9 @@ Chat also accepts the exact messages `connect Spotify`, `log in to Spotify`,
 `Spotify connection status`, and `cancel Spotify connection`. If a credential file
 exists, the API requests a separate `confirm replace Spotify credentials` message;
 the confirmation expires after five minutes and is bound to the existing file.
-The conversation shows an authorization link when ready and reports the result.
+Natural-language connection requests, status, confirmation and cancellation are also
+interpreted by the configured hosted chat provider. Clear confirmation is required;
+ambiguous replies should be clarified. The conversation shows an authorization link when ready and reports the result.
 Never paste authorization URLs or tokens into chat.
 
 On success, Spotify tokens are stored at `~/.config/tunetrail/auth.json` with

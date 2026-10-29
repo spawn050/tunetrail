@@ -177,6 +177,23 @@ class RecentPlaysQuery(BaseModel):
     limit: int = Field(default=20, ge=1, le=50, strict=True)
 
 
+class SpotifyChatAction(BaseModel):
+    """A bounded chat operation, never a provider result or an approval itself."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    action: Literal[
+        "connect", "connection_status", "cancel", "confirm", "list_devices", "select_device"
+    ]
+    device_name: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_name(self) -> "SpotifyChatAction":
+        if (self.action == "select_device") != (self.device_name is not None):
+            raise ValueError("Only a device selection includes a device name")
+        return self
+
+
 class ChatInterpretation(BaseModel):
     """Validated temporary intent and explicit lasting preferences from one message."""
 
@@ -186,6 +203,7 @@ class ChatInterpretation(BaseModel):
     preferences: list[ChatPreference] = Field(default_factory=list[ChatPreference], max_length=20)
     clarification: str | None = Field(default=None, min_length=1, max_length=500)
     recent_plays: RecentPlaysQuery | None = None
+    spotify_action: SpotifyChatAction | None = None
 
     @model_validator(mode="after")
     def validate_interpretation(self) -> "ChatInterpretation":
@@ -196,11 +214,16 @@ class ChatInterpretation(BaseModel):
             raise ValueError("ambiguous messages cannot update lasting preferences")
         if self.recent_plays and (self.intent or self.preferences or self.clarification):
             raise ValueError("recent plays must be requested separately")
+        if self.spotify_action and (
+            self.intent or self.preferences or self.clarification or self.recent_plays
+        ):
+            raise ValueError("Spotify actions must be requested separately")
         if (
             self.intent is None
             and not self.preferences
             and self.clarification is None
             and not self.recent_plays
+            and not self.spotify_action
         ):
             raise ValueError(
                 "an interpretation must contain an intent, preference or clarification"

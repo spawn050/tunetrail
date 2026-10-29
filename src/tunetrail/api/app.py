@@ -36,7 +36,8 @@ from tunetrail.domain.models import (
     PlaybackAction,
     PreferenceSource,
 )
-from tunetrail.llm.factory import OpenRouterLLMFactory
+from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
+from tunetrail.llm.intent_parser import IntentParseError
 from tunetrail.musicbrainz.client import MusicBrainzClient
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
 from tunetrail.reccobeats.client import ReccoBeatsEnricher
@@ -97,9 +98,12 @@ class Services:
         self.settings = settings
         self.credentials = credentials
         self.connect_lock = asyncio.Lock()
+        self.chat_lock = asyncio.Lock()
         self.connect_task: asyncio.Task[None] | None = None
         self.connect_status = "idle"
         self.connect_confirmation: tuple[bytes, float] | None = None
+        self.device_lock = asyncio.Lock()
+        self.device_confirmation: tuple[str, str, float] | None = None
         self.profile = ExplicitProfileService(SQLitePersonalizationStore(database))
         self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.auth = SpotifyAuthenticator(
@@ -270,7 +274,25 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
+        async with services.chat_lock:
+            return await handle_chat(body)
+
+    async def handle_chat(body: ChatInput) -> object:
         text = body.message.casefold().strip().rstrip(".!?")
+        if text in {"list devices", "show devices", "active devices"}:
+            devices = await services.spotify.devices()
+            return {
+                "devices": [
+                    {
+                        "name": d.name,
+                        "kind": d.kind,
+                        "is_active": d.is_active,
+                        "is_restricted": d.is_restricted,
+                        "selectable": d.id is not None,
+                    }
+                    for d in devices
+                ]
+            }
         if text in SPOTIFY_CONNECT_STATUS_COMMANDS:
             status = await spotify_connect_status()
             confirmation = services.connect_confirmation
@@ -282,6 +304,11 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
             return {"spotify_connection": {"status": services.connect_status, "cancelled": True}}
         if text in SPOTIFY_CONNECT_COMMANDS:
             async with services.connect_lock:
+                if (
+                    services.device_confirmation
+                    and services.device_confirmation[2] > time.monotonic()
+                ):
+                    raise HTTPException(409, "Resolve the pending device confirmation first.")
                 if not services.settings.spotify_client_id:
                     raise HTTPException(
                         400, "Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env and restart TuneTrail."
@@ -347,6 +374,14 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 or OpenRouterLLMFactory(services.settings).create_preference_parser()
             )
             interpretation = await services.profile.interpret_chat(body.message, parser)
+        except LLMConfigurationError as error:
+            raise HTTPException(503, str(error)) from error
+        except IntentParseError as error:
+            raise HTTPException(
+                502,
+                "Chat provider returned an invalid interpretation. "
+                "Try rephrasing or check the configured model.",
+            ) from error
         except ValueError:
             raise
         except Exception as error:
@@ -355,6 +390,105 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 "Chat provider failed or returned invalid output. "
                 "Check configuration and try rephrasing.",
             ) from error
+
+        if interpretation.spotify_action:
+            action = interpretation.spotify_action
+            if action.action == "list_devices":
+                return await handle_chat(ChatInput(message="list devices"))
+            if action.action in ("connect", "connection_status"):
+                command_text = (
+                    "connect spotify" if action.action == "connect" else "spotify connection status"
+                )
+                return await handle_chat(ChatInput(message=command_text))
+            if action.action == "select_device":
+                name = action.device_name
+                if not name or name.casefold() not in body.message.casefold():
+                    return {"clarification": "Please specify the device name exactly as shown."}
+                async with services.device_lock:
+                    if (
+                        services.connect_confirmation
+                        and services.connect_confirmation[1] > time.monotonic()
+                    ):
+                        raise HTTPException(
+                            409, "Resolve the pending Spotify credential confirmation first."
+                        )
+                    services.device_confirmation = None
+                    matches = [
+                        d
+                        for d in await services.spotify.devices()
+                        if d.name.casefold() == name.casefold()
+                    ]
+                    if len(matches) != 1:
+                        return {
+                            "clarification": "That device name is unavailable or ambiguous. "
+                            "List devices and specify a unique name."
+                        }
+                    device = matches[0]
+                    if device.is_restricted or not device.id:
+                        return {
+                            "clarification": "That device cannot be selected. "
+                            "Choose another available device."
+                        }
+                    if device.is_active:
+                        return {"device_message": f"{device.name} is already active."}
+                    services.device_confirmation = (device.id, device.name, time.monotonic() + 300)
+                    return {
+                        "device_message": f"Transfer Spotify playback to {device.name}? "
+                        "Confirm or cancel. This confirmation expires in five minutes."
+                    }
+            if action.action == "cancel":
+                async with services.device_lock:
+                    had_device = services.device_confirmation is not None
+                    services.device_confirmation = None
+                if had_device:
+                    return {"device_message": "Device transfer cancelled."}
+                return await handle_chat(ChatInput(message="cancel spotify connection"))
+            if action.action == "confirm":
+                async with services.device_lock:
+                    pending = services.device_confirmation
+                    services.device_confirmation = None
+                    if pending:
+                        device_id, device_name, expires = pending
+                        if expires <= time.monotonic():
+                            raise HTTPException(
+                                409, "Device confirmation expired. Select the device again."
+                            )
+                        available = [
+                            d
+                            for d in await services.spotify.devices()
+                            if d.id == device_id and d.name == device_name and not d.is_restricted
+                        ]
+                        if len(available) != 1:
+                            raise HTTPException(
+                                409,
+                                "Device changed or is unavailable. List devices and select again.",
+                            )
+                        request_body = {"device_ids": [device_id], "play": False}
+                        approval = services.spotify.approvals.propose(
+                            PlayerAction.create("PUT", "/me/player", None, request_body)
+                        )
+                        services.spotify.approvals.approve(approval)
+                        try:
+                            await services.spotify.select_device(device_id, approval=approval)
+                        except (
+                            SpotifyApiError,
+                            SpotifyAuthorizationError,
+                            httpx.HTTPError,
+                            ValueError,
+                        ) as error:
+                            raise HTTPException(
+                                502,
+                                "Device transfer could not be confirmed and may have succeeded. "
+                                "Check Spotify before trying again.",
+                            ) from error
+                        return {
+                            "device_message": f"Transfer to {device_name} requested. "
+                            "Check Spotify for the active device.",
+                            "device_transfer_requested": True,
+                        }
+                if services.connect_confirmation:
+                    return await handle_chat(ChatInput(message=SPOTIFY_REPLACE_CONFIRMATION))
+                raise HTTPException(409, "There is no pending confirmation.")
 
         if interpretation.recent_plays:
             query = interpretation.recent_plays

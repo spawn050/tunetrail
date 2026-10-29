@@ -99,6 +99,19 @@ describe('chat-focused interface', () => {
     expect(screen.getAllByText('Results may not cover the entire period.')).toHaveLength(2);
   });
 
+  it('renders device results and transfer confirmation in chat', async () => {
+    const api = mockApi(); const user = userEvent.setup();
+    api.post = vi.fn().mockResolvedValueOnce({ devices: [{ name: 'Desk', kind: 'Computer', is_active: true, selectable: true }] })
+      .mockResolvedValueOnce({ device_message: 'Transfer Spotify playback to Desk? Confirm or cancel.' });
+    render(<App api={api} />);
+    await send(user, 'show my devices');
+    expect(await screen.findByText('Desk')).toBeInTheDocument();
+    expect(screen.getByText(/Computer · Active/)).toBeInTheDocument();
+    await send(user, 'make Desk active');
+    expect(await screen.findByText(/Confirm or cancel/)).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(2);
+  });
+
   it('shows errors and does not retry a failed player request', async () => {
     const api = mockApi(); const user = userEvent.setup();
     api.post = vi.fn(async () => { throw new Error('Check Spotify before retrying; the request may have succeeded.'); });

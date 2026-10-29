@@ -28,6 +28,8 @@ function connectionMessage(connection) {
 
 function replyFor(result) {
   if (result.control) return { text: `Spotify ${result.control} request sent. Check the player for its current state.` };
+  if (result.device_message) return { text: result.device_message };
+  if (Array.isArray(result.devices)) return { text: result.devices.length ? 'Available Spotify devices:' : 'No Spotify devices found. Open Spotify on a device and try again.', devices: result.devices };
   if (result.spotify_connection) return { text: connectionMessage(result.spotify_connection) };
   if (Array.isArray(result.recent_plays)) return {
     text: result.recent_plays.length ? 'Recent Spotify plays:' : 'No plays found in the available results.',
@@ -124,7 +126,7 @@ export default function App({ api = apiDefault }) {
         setConnection((previous) => next.status === 'pending' && !url && previous?.status === 'pending' ? previous : { ...next, url });
       }
       setConversation((entries) => [...entries, { role: 'assistant', ...replyFor(result) }]);
-      if (result.control || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
+      if (result.control || result.device_transfer_requested || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
     } catch (e) {
       setConversation((entries) => [...entries, { role: 'assistant', error: true, text: e.message || 'Request failed.' }]);
     } finally { pending.current = false; setBusy(false); }
@@ -155,6 +157,7 @@ export default function App({ api = apiDefault }) {
       {conversation.map((entry, index) => <div className={`chat-entry ${entry.role}`} key={index}>
         <strong>{entry.role === 'user' ? 'You' : 'TuneTrail'}</strong><p role={entry.error ? 'alert' : undefined}>{entry.text}</p>
         {entry.plays?.length > 0 && <ol>{entry.plays.map((play, i) => <li key={i}><strong>{play.title}</strong> — {play.artists.join(', ')} <time dateTime={play.played_at}>{new Date(play.played_at).toLocaleString()}</time></li>)}</ol>}
+        {entry.devices?.length > 0 && <ul>{entry.devices.map((device, i) => <li key={i}><strong>{device.name}</strong> — {device.kind}{device.is_active ? ' · Active' : ''}{device.is_restricted || !device.selectable ? ' · Cannot select' : ''}</li>)}</ul>}
         {entry.notice && <p className="coverage">{entry.notice}</p>}
       </div>)}
       {connection?.status === 'pending' && connection.url && <div className="chat-entry assistant"><a href={connection.url} target="_blank" rel="noopener noreferrer">Open Spotify authorization</a></div>}

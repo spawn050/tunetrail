@@ -22,10 +22,18 @@ Exact player commands (`pause`, `play`, `resume`, `next`, `next track`, `previou
 fails, it may still have succeeded: inspect Spotify before retrying. A playback
 request is not proof of listening. Enter sends; Shift+Enter adds a newline.
 
+Natural-language Spotify connection, status, cancellation, confirmation, device
+listing and device selection use the configured hosted LLM. `list devices` also
+works locally. Device names must match a unique available name exactly; restricted
+or unidentified devices cannot be selected. A transfer needs a separate clear
+confirmation in chat, expires after five minutes, and is not retried automatically.
+If it fails, check Spotify before retrying; the transfer may have succeeded. Device
+results remain local and are not sent to the LLM. The device list may change.
+
 Other chat goes to the configured hosted LLM and leaves the machine. Clear lasting
 preferences are saved immediately; ambiguity requires clarification. Spotify
 recent-play results are not sent to the LLM or persisted. Do not paste credentials
-or authorization links into chat. Discovery, selecting devices, and playing a
+or authorization links into chat. Discovery and playing a
 specific song are not yet available through chat. The previous discovery, profile,
 and preview controls are no longer in the UI; existing backend APIs remain available.
 No data is deleted by removing the controls. An incompatible profile database still
