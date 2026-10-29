@@ -80,3 +80,16 @@ Playback acceptance requires separate authorization, a Spotify Premium account, 
 - [ ] Leave independent review open unless the owner chooses to pursue it.
 - [ ] Keep provider-policy questions open; successful tests do not establish clearance.
 - [ ] Decide whether remaining open items are acceptable before revisiting Phase 7.
+
+## Conversational backend follow-up
+
+- [ ] Build and verify chat-first backend capabilities in small phases before the UI revamp.
+- [ ] Chat Spotify login: offline-tested exact commands for connection, status and cancellation, with separate credential-replacement confirmation. Chat UI rendering is mocked-tested; live authorization remains unverified.
+- [ ] Recent-play queries: structured bounded request, local filtering and chat rendering, no Spotify results sent to the LLM; offline tests only. Live access requires authorization and potentially explicit credential replacement for the new scope.
+- [ ] Add remaining chat capabilities, including device selection, specific playback, independent discovery, general music questions and profile queries, with explicit approval for playback mutations.
+- [ ] Basic chat-first UI implemented for manual testing; expand it as backend chat capabilities are added, and take feedback through chat instead of clickable controls.
+- [ ] Natural-language Spotify connection and device listing/selection implemented with mocked tests; device transfer requires separate confirmation. Live read-only and playback/transfer acceptance remain separately unauthorized.
+- [ ] Page-lifetime follow-up context: bounded user excerpts, extractive compression and clearing on Spotify results; mocked tests only. Context cannot authorize Spotify actions or save preferences, and general conversational answers remain unimplemented.
+- [ ] Playback controls: bounded local recognition of clear pause/resume, next/previous, volume and shuffle requests, with exact single-use approvals and mocked tests. Wording coverage is limited; live playback acceptance remains separately unauthorized.
+- [ ] Specific-song chat playback: bounded first-page Spotify search, numbered version selection and explicit single-use confirmation on a rechecked active device. Offline mocked verification only; live read-only search and playback acceptance remain separately unauthorized.
+- [ ] Resolve provider-policy concerns separately; local processing is not policy clearance.

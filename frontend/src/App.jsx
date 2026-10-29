@@ -27,6 +27,7 @@ function connectionMessage(connection) {
 }
 
 function replyFor(result) {
+  if (result.recommendation_message) return { text: result.recommendation_message };
   if (result.song_message) return { text: result.song_message };
   if (result.control) return { text: `Spotify ${result.control} request sent. Check the player for its current state.` };
   if (result.device_message) return { text: result.device_message };
@@ -58,6 +59,7 @@ export default function App({ api = apiDefault }) {
   const conversationRef = useRef(null);
   const composerRef = useRef(null);
   const restoreFocus = useRef(false);
+  const recommendationRef = useRef(null);
   // Excerpts live only in this page's memory, never browser storage or server state.
   const contextRef = useRef({ recent: [], compressed: [] });
 
@@ -131,9 +133,13 @@ export default function App({ api = apiDefault }) {
     setConversation((entries) => [...entries, { role: 'user', text: submitted }]);
     try {
       const context = [...contextRef.current.compressed, ...contextRef.current.recent];
-      const result = await api.post('/api/chat', context.length ? { message: submitted, context } : { message: submitted });
+      const payload = context.length ? { message: submitted, context } : { message: submitted };
+      if (recommendationRef.current) payload.recommendation_state = recommendationRef.current;
+      recommendationRef.current = null;
+      const result = await api.post('/api/chat', payload);
+      recommendationRef.current = result.recommendation_state || null;
       // Never retain Spotify responses or requests that produced them as model context.
-      if (result.control || result.song_message || result.device_message || result.devices || result.spotify_connection || result.recent_plays) {
+      if (result.control || result.song_message || result.recommendation_message || result.device_message || result.devices || result.spotify_connection || result.recent_plays) {
         contextRef.current = { recent: [], compressed: [] };
       } else if (!/spotify:|open\.spotify\.com|https?:\/\//i.test(submitted)) {
         const recent = [...contextRef.current.recent, submitted.slice(0, 500)];

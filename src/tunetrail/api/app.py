@@ -35,13 +35,15 @@ from tunetrail.config import Settings
 from tunetrail.domain.models import (
     CatalogItemKind,
     ExplicitPreference,
+    ListeningIntent,
     PlaybackAction,
     PreferenceSource,
+    PreferenceSubject,
     ResolvedTrack,
 )
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.llm.intent_parser import IntentParseError, StructuredPreferenceParser
-from tunetrail.musicbrainz.client import MusicBrainzClient
+from tunetrail.musicbrainz.client import ArtistMatch, MusicBrainzClient, MusicBrainzError
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
 from tunetrail.reccobeats.client import ReccoBeatsEnricher
 from tunetrail.recommendation.explicit_profile import ExplicitProfileService, PreferenceChatParser
@@ -49,6 +51,7 @@ from tunetrail.recommendation.independent_discovery import (
     EnrichedCandidate,
     IndependentDiscovery,
     IndependentSeed,
+    SeedKind,
 )
 from tunetrail.recommendation.ranking import rank_candidates
 from tunetrail.recommendation.spotify_preview import build_preview
@@ -118,18 +121,23 @@ class Services:
             accounts_url=settings.spotify_accounts_url,
         )
         self.spotify = SpotifyClient(self.auth, self.http, api_url=settings.spotify_api_url)
-        self.discovery = IndependentDiscovery(MusicBrainzClient(self.http))
+        self.musicbrainz = MusicBrainzClient(self.http)
+        self.discovery = IndependentDiscovery(self.musicbrainz)
         self.enricher = ReccoBeatsEnricher(self.http)
         self.parser: PreferenceChatParser | None = None
         self.discovery_lock = asyncio.Lock()
         self.discoveries: dict[str, tuple[float, tuple[EnrichedCandidate, ...]]] = {}
         self.proposals: dict[str, Proposal] = {}
+        self.recommendation_states: dict[str, tuple[float, tuple[ArtistMatch, ...]]] = {}
 
     def prune(self) -> None:
         now = time.monotonic()
         self.discoveries = {key: value for key, value in self.discoveries.items() if value[0] > now}
         self.proposals = {
             key: value for key, value in self.proposals.items() if value.expires > now
+        }
+        self.recommendation_states = {
+            key: value for key, value in self.recommendation_states.items() if value[0] > now
         }
 
 
@@ -282,6 +290,143 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     async def handle_chat(body: ChatInput) -> object:
         text = body.message.casefold().strip().rstrip(".!?")
+        services.prune()
+        pending_recommendation = (
+            services.recommendation_states.pop(body.recommendation_state, None)
+            if body.recommendation_state
+            else None
+        )
+
+        def recommendation_reply(
+            message: str, choices: tuple[ArtistMatch, ...] | None = None
+        ) -> object:
+            services.song_choices = None
+            services.song_confirmation = None
+            if choices is None:
+                return {"recommendation_message": message}
+            if len(services.recommendation_states) >= 100:
+                return {
+                    "recommendation_message": (
+                        "Too many recommendation searches are open. Try again later."
+                    )
+                }
+            key = secrets.token_urlsafe(32)
+            services.recommendation_states[key] = (time.monotonic() + 300, choices)
+            return {"recommendation_message": message, "recommendation_state": key}
+
+        async def find_recommendation_artist(name: str) -> object:
+            services.song_choices = None
+            services.song_confirmation = None
+            if (
+                not name
+                or len(name) > 200
+                or re.search(r"spotify|https?://|\b[0-9a-f]{8}-[0-9a-f-]{27,}\b", name, re.I)
+            ):
+                return recommendation_reply(
+                    "Please provide an artist name, not a link or identifier: artist: Taylor Swift",
+                    (),
+                )
+            try:
+                async with asyncio.timeout(15):
+                    matches = tuple(await services.musicbrainz.search_artists_independent(name))
+            except (MusicBrainzError, TimeoutError, ValueError):
+                return recommendation_reply(
+                    "MusicBrainz artist search is unavailable. Please try again later."
+                )
+            if not matches:
+                return recommendation_reply(
+                    "No artist matches found. Try another name using 'artist: name'.", ()
+                )
+            listing = "\n".join(
+                f"{i}. {m.name} — {m.disambiguation or 'no description available'}"
+                for i, m in enumerate(matches, 1)
+            )
+            return recommendation_reply(
+                f"MusicBrainz artist matches (first page):\n{listing}\n"
+                "Send 'select artist 1' or another number, or 'cancel recommendations'. "
+                "Choices expire in five minutes.",
+                matches,
+            )
+
+        if pending_recommendation and text == "cancel recommendations":
+            return recommendation_reply("Recommendation search cancelled.")
+        if (
+            pending_recommendation
+            and not pending_recommendation[1]
+            and re.match(r"(?i)^artist\s*:", body.message.strip())
+        ):
+            return await find_recommendation_artist(body.message.strip().split(":", 1)[1].strip())
+        selected_artist = re.fullmatch(r"select artist ([1-9]\d*)", text)
+        if selected_artist:
+            if not pending_recommendation or not pending_recommendation[1]:
+                return recommendation_reply(
+                    "Artist choices are missing or expired. Ask for recommendations again."
+                )
+            choices = pending_recommendation[1]
+            index = int(selected_artist.group(1)) - 1
+            if index >= len(choices):
+                return recommendation_reply(
+                    "Choose a number from the displayed artist list.", choices
+                )
+            artist = choices[index]
+            result = await services.discovery.discover(
+                [IndependentSeed(SeedKind.ARTIST, artist.id)], limit=10
+            )
+            if result.source_failures:
+                return recommendation_reply(
+                    "MusicBrainz recordings are unavailable. Please try again later."
+                )
+            preferences = await services.profile.list_preferences()
+            ranked = rank_candidates(
+                tuple(EnrichedCandidate(c, None, "not requested") for c in result.candidates),
+                preferences,
+                ListeningIntent(queue_size=10),
+            )
+            # A negative match must not be outweighed by a positive signal.
+            candidates = [
+                c.item.candidate
+                for c in ranked.candidates
+                if not any(
+                    value < 0 and signal.startswith(("artist preference:", "recording preference:"))
+                    for signal, value in c.signals
+                )
+            ]
+            if not candidates:
+                return recommendation_reply(
+                    "No suitable recordings found in the first MusicBrainz results. "
+                    "Try another artist."
+                )
+            listing = "\n".join(
+                f"{i}. {c.title} — {', '.join(c.artists)}" for i, c in enumerate(candidates[:5], 1)
+            )
+            limitations = (
+                " Some saved preferences could not be applied." if ranked.unsupported else ""
+            )
+            return recommendation_reply(
+                f"Here are recordings associated with {artist.name} in MusicBrainz:\n{listing}\n"
+                "These are artist recordings, not proven similar songs; "
+                "availability on Spotify is not checked."
+                f" Results are limited to a first page.{limitations} Nothing was played or queued."
+            )
+        if re.fullmatch(
+            r"(?i)(?:(?:please|can you|could you)\s+)?(?:recommend|suggest)\s+"
+            r"(?:me\s+)?(?:some\s+)?(?:songs|music|tracks)"
+            r"(?:\s+(?:that\s+i\s+(?:would|might)\s+like|for\s+me|"
+            r"i\s+(?:would|might)\s+like))?[.!?]*",
+            body.message.strip(),
+        ):
+            preferences = await services.profile.list_preferences()
+            artists = [
+                p for p in preferences if p.subject is PreferenceSubject.ARTIST and p.strength > 0
+            ]
+            if len(artists) == 1:
+                return await find_recommendation_artist(artists[0].name)
+            return recommendation_reply(
+                "Tell me an artist you like, for example 'artist: Taylor Swift'. "
+                "I can suggest their recordings, but not yet verify similar artists. "
+                "This won't save a lasting preference.",
+                (),
+            )
         if text in {"cancel song", "cancel playback"}:
             services.song_choices = None
             services.song_confirmation = None

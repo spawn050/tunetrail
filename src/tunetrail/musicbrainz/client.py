@@ -6,6 +6,7 @@ import math
 import os
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -24,6 +25,13 @@ _USER_AGENT = "TuneTrail/0.1.0 ( https://github.com/spawn050/tunetrail )"
 
 class MusicBrainzError(Exception):
     """A safe optional-source error without request or response contents."""
+
+
+@dataclass(frozen=True, slots=True)
+class ArtistMatch:
+    id: UUID
+    name: str
+    disambiguation: str
 
 
 class RateLimiter:
@@ -130,6 +138,36 @@ class MusicBrainzClient:
         payload = await self._get(f"artist/{quote(mbid, safe='')}", {"inc": "aliases"})
         return _artist(payload)
 
+    async def search_artists_independent(self, name: str) -> list[ArtistMatch]:
+        """Find a bounded page for explicit user selection, not identity inference."""
+        if not name.strip() or len(name) > 200 or re_spotify_reference(name):
+            raise ValueError("Artist name must be independently supplied")
+        payload = await self._get("artist", {"query": f'artist:"{_escape(name)}"', "limit": "5"})
+        items = payload.get("artists")
+        if not isinstance(items, list) or len(cast(list[object], items)) > 5:
+            raise MusicBrainzError("MusicBrainz returned invalid artist results.")
+        matches: list[ArtistMatch] = []
+        for item in cast(list[object], items):
+            value = _map(item)
+            try:
+                identifier = UUID(str(value.get("id")))
+            except ValueError as error:
+                raise MusicBrainzError("MusicBrainz returned invalid artist results.") from error
+            artist_name = value.get("name")
+            description = value.get("disambiguation", "")
+            if (
+                not isinstance(artist_name, str)
+                or not artist_name.strip()
+                or len(artist_name) > 200
+            ):
+                raise MusicBrainzError("MusicBrainz returned invalid artist results.")
+            if not isinstance(description, str) or len(description) > 300:
+                raise MusicBrainzError("MusicBrainz returned invalid artist results.")
+            if re_spotify_reference(artist_name) or re_spotify_reference(description):
+                continue
+            matches.append(ArtistMatch(identifier, artist_name, description))
+        return matches
+
     async def browse_artist_recordings(self, artist_id: UUID, *, limit: int) -> list[Recording]:
         """Browse one bounded page linked to an independently identified artist."""
         if not 1 <= limit <= 20:
@@ -196,6 +234,10 @@ class MusicBrainzClient:
 
 def _escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def re_spotify_reference(value: str) -> bool:
+    return "spotify:" in value.casefold() or "spotify.com" in value.casefold()
 
 
 def _retry_after(response: httpx.Response) -> float:

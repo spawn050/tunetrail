@@ -143,6 +143,26 @@ describe('chat-focused interface', () => {
     await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/api/now-playing').length).toBeGreaterThanOrEqual(2));
   });
 
+  it('keeps recommendation choices in page memory and renders results', async () => {
+    const api = mockApi(); const user = userEvent.setup();
+    api.post = vi.fn().mockResolvedValueOnce({ recommendation_message: 'Tell me an artist.', recommendation_state: 'first-state' })
+      .mockResolvedValueOnce({ recommendation_message: '1. Example — singer', recommendation_state: 'second-state' })
+      .mockResolvedValueOnce({ recommendation_message: 'Song — Example. Nothing was played or queued.' });
+    const view = render(<App api={api} />);
+    await send(user, 'recommend me some songs that i would like');
+    expect(await screen.findByText('Tell me an artist.')).toBeInTheDocument();
+    await send(user, 'artist: Example');
+    expect(api.post.mock.calls[1][1]).toEqual({ message: 'artist: Example', recommendation_state: 'first-state' });
+    await send(user, 'select artist 1');
+    expect(await screen.findByText(/Nothing was played or queued/)).toBeInTheDocument();
+    expect(api.post.mock.calls[2][1]).toEqual({ message: 'select artist 1', recommendation_state: 'second-state' });
+    view.unmount();
+    render(<App api={api} />);
+    api.post.mockResolvedValueOnce({ clarification: 'Start again.' });
+    await send(user, 'select artist 1');
+    expect(api.post.mock.calls[3][1]).toEqual({ message: 'select artist 1' });
+  });
+
   it('shows errors and does not retry a failed player request', async () => {
     const api = mockApi(); const user = userEvent.setup();
     api.post = vi.fn(async () => { throw new Error('Check Spotify before retrying; the request may have succeeded.'); });
