@@ -68,6 +68,14 @@ file already exists, replacement requires the explicit checkbox. If it changes w
 authorization is in progress, TuneTrail preserves it and reports a failure. A
 successful sign-in does not verify playback or imply provider-policy clearance.
 
+The chat API also accepts the exact messages `connect Spotify`, `log in to Spotify`,
+`Spotify connection status`, and `cancel Spotify connection`. If a credential file
+exists, the API requests a separate `confirm replace Spotify credentials` message;
+the confirmation expires after five minutes and is bound to the existing file.
+The API returns an authorization URL when ready. The current UI does not yet render
+chat connection responses; use the interface's existing connection panel until the
+chat UI is updated. Never paste authorization URLs or tokens into chat.
+
 On success, Spotify tokens are stored at `~/.config/tunetrail/auth.json` with
 owner-only (`0600`) permissions. There is currently no logout control in the
 interface. Failed token refresh preserves the existing credential file. Ask the

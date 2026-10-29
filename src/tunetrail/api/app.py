@@ -84,6 +84,11 @@ PLAYER_COMMANDS = {
     "previous track": ("previous", "POST", "/me/player/previous"),
 }
 
+SPOTIFY_CONNECT_COMMANDS = {"connect spotify", "log in to spotify", "login to spotify"}
+SPOTIFY_CONNECT_STATUS_COMMANDS = {"spotify connection status", "spotify login status"}
+SPOTIFY_CONNECT_CANCEL_COMMANDS = {"cancel spotify connection", "cancel spotify login"}
+SPOTIFY_REPLACE_CONFIRMATION = "confirm replace spotify credentials"
+
 
 class Services:
     """Runtime dependencies and bounded, ephemeral discovery/preview state."""
@@ -94,6 +99,7 @@ class Services:
         self.connect_lock = asyncio.Lock()
         self.connect_task: asyncio.Task[None] | None = None
         self.connect_status = "idle"
+        self.connect_confirmation: tuple[bytes, float] | None = None
         self.profile = ExplicitProfileService(SQLitePersonalizationStore(database))
         self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.auth = SpotifyAuthenticator(
@@ -191,8 +197,9 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
             "status": services.connect_status,
         }
 
-    @app.post("/api/spotify/connect")
-    async def spotify_connect(body: SpotifyConnectInput) -> dict[str, str]:
+    async def start_spotify_connect(
+        body: SpotifyConnectInput, *, expected_digest: bytes | None = None
+    ) -> dict[str, str]:
         async with services.connect_lock:
             if not services.settings.spotify_client_id:
                 raise HTTPException(
@@ -201,10 +208,13 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
             if services.connect_task and not services.connect_task.done():
                 raise HTTPException(409, "Spotify connection is already in progress.")
             original = credential_digest()
+            if expected_digest is not None and original != expected_digest:
+                raise HTTPException(409, "Spotify credentials changed. Start the connection again.")
             if original is not None and not body.replace_existing:
                 raise HTTPException(
                     409, "Existing Spotify credentials require explicit replacement confirmation."
                 )
+            services.connect_confirmation = None
             try:
                 receiver = LoopbackCallbackReceiver(services.settings.spotify_redirect_uri)
             except ValueError as error:
@@ -244,9 +254,14 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 )
             return {"authorization_url": url}
 
+    @app.post("/api/spotify/connect")
+    async def spotify_connect(body: SpotifyConnectInput) -> dict[str, str]:
+        return await start_spotify_connect(body)
+
     @app.post("/api/spotify/connect/cancel")
     async def spotify_connect_cancel() -> dict[str, bool]:
         async with services.connect_lock:
+            services.connect_confirmation = None
             if services.connect_task and not services.connect_task.done():
                 services.connect_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -255,7 +270,53 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     @app.post("/api/chat")
     async def chat(body: ChatInput) -> object:
-        command = PLAYER_COMMANDS.get(body.message.casefold().strip().rstrip(".!?"))
+        text = body.message.casefold().strip().rstrip(".!?")
+        if text in SPOTIFY_CONNECT_STATUS_COMMANDS:
+            status = await spotify_connect_status()
+            confirmation = services.connect_confirmation
+            if confirmation is not None and confirmation[1] > time.monotonic():
+                status["status"] = "confirmation_required"
+            return {"spotify_connection": status}
+        if text in SPOTIFY_CONNECT_CANCEL_COMMANDS:
+            await spotify_connect_cancel()
+            return {"spotify_connection": {"status": services.connect_status, "cancelled": True}}
+        if text in SPOTIFY_CONNECT_COMMANDS:
+            async with services.connect_lock:
+                if not services.settings.spotify_client_id:
+                    raise HTTPException(
+                        400, "Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env and restart TuneTrail."
+                    )
+                if services.connect_task and not services.connect_task.done():
+                    return {"spotify_connection": {"status": "pending"}}
+                original = credential_digest()
+                if original is not None:
+                    services.connect_confirmation = (original, time.monotonic() + 300)
+                    return {
+                        "spotify_connection": {
+                            "status": "confirmation_required",
+                            "message": (
+                                "A credential file already exists. To authorize replacing it, "
+                                "send: confirm replace Spotify credentials. "
+                                "To cancel, send: cancel Spotify connection."
+                            ),
+                        }
+                    }
+            result = await start_spotify_connect(SpotifyConnectInput())
+            return {"spotify_connection": {"status": "pending", **result}}
+        if text == SPOTIFY_REPLACE_CONFIRMATION:
+            async with services.connect_lock:
+                confirmation = services.connect_confirmation
+                services.connect_confirmation = None
+                if confirmation is None or confirmation[1] <= time.monotonic():
+                    raise HTTPException(
+                        409, "No current confirmation. Start Spotify connection again."
+                    )
+                expected_digest = confirmation[0]
+            result = await start_spotify_connect(
+                SpotifyConnectInput(replace_existing=True), expected_digest=expected_digest
+            )
+            return {"spotify_connection": {"status": "pending", **result}}
+        command = PLAYER_COMMANDS.get(text)
         if command:
             action, method, path = command
             try:

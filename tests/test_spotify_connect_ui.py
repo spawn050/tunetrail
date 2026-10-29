@@ -130,3 +130,153 @@ async def test_cancel_or_wrong_state_preserves_credentials(tmp_path: Path, cance
         assert services.connect_status == ("cancelled" if cancel else "failed")
         assert path.read_text() == "original"
     await services.http.aclose()
+
+
+@pytest.mark.parametrize("existing", [False, True])
+async def test_chat_connect_and_status(tmp_path: Path, existing: bool) -> None:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    path = tmp_path / "auth"
+    if existing:
+        path.write_text("original")
+    services = Services(
+        Settings(
+            spotify_client_id="client", spotify_redirect_uri=f"http://127.0.0.1:{port}/callback"
+        ),
+        tmp_path / "db",
+        path,
+    )
+    await services.http.aclose()
+    services.auth._http_client = httpx.AsyncClient(  # type: ignore[reportPrivateUsage]
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={
+                    "access_token": "private-access",
+                    "refresh_token": "private-refresh",
+                    "expires_in": 3600,
+                },
+            )
+        )
+    )
+    async with services.auth._http_client:  # type: ignore[reportPrivateUsage]  # noqa: SIM117
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(services)),
+            base_url="http://127.0.0.1:8766",
+        ) as client:
+            token = (await client.get("/api/session")).json()["token"]
+            headers = {"X-TuneTrail-Token": token}
+
+            async def chat(message: str) -> httpx.Response:
+                return await client.post("/api/chat", json={"message": message}, headers=headers)
+
+            assert (
+                await client.post("/api/chat", json={"message": "connect spotify"})
+            ).status_code == 403
+            response = await chat("Connect Spotify!")
+            if existing:
+                assert response.json()["spotify_connection"]["status"] == "confirmation_required"
+                assert path.read_text() == "original"
+                assert services.connect_task is None
+                response = await chat("confirm replace Spotify credentials")
+            connection = response.json()["spotify_connection"]
+            assert connection["status"] == "pending"
+            assert (await chat("spotify connection status")).json()["spotify_connection"][
+                "status"
+            ] == "pending"
+            url = cast(str, connection["authorization_url"])
+            state = parse_qs(urlsplit(url).query)["state"][0]
+            async with httpx.AsyncClient() as browser:
+                await browser.get(
+                    f"http://127.0.0.1:{port}/callback", params={"code": "test", "state": state}
+                )
+            assert services.connect_task is not None
+            await asyncio.wait_for(services.connect_task, 2)
+            status = (await chat("spotify connection status")).json()
+            assert status["spotify_connection"]["status"] == "connected"
+            assert "private-access" not in str(status)
+            assert "private-refresh" not in str(status)
+
+
+async def test_chat_confirmation_is_bound_to_existing_credentials(tmp_path: Path) -> None:
+    path = tmp_path / "auth"
+    path.write_text("original")
+    services = Services(Settings(spotify_client_id="client"), tmp_path / "db", path)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+        headers = {"X-TuneTrail-Token": token}
+
+        async def chat(message: str) -> httpx.Response:
+            return await client.post("/api/chat", json={"message": message}, headers=headers)
+
+        assert (await chat("confirm replace spotify credentials")).status_code == 409
+        assert (await chat("connect spotify")).json()["spotify_connection"][
+            "status"
+        ] == "confirmation_required"
+        path.write_text("changed by owner")
+        assert (await chat("confirm replace spotify credentials")).status_code == 409
+        assert path.read_text() == "changed by owner"
+        assert services.connect_task is None
+        await chat("connect spotify")
+        await chat("cancel spotify connection")
+        assert (await chat("confirm replace spotify credentials")).status_code == 409
+        await chat("connect spotify")
+        assert services.connect_confirmation is not None
+        digest, _ = services.connect_confirmation
+        services.connect_confirmation = (digest, 0)
+        assert (await chat("confirm replace spotify credentials")).status_code == 409
+    await services.http.aclose()
+
+
+async def test_chat_connection_requires_configuration(tmp_path: Path) -> None:
+    services = Services(Settings(), tmp_path / "db", tmp_path / "auth")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+        response = await client.post(
+            "/api/chat", json={"message": "connect spotify"}, headers={"X-TuneTrail-Token": token}
+        )
+        assert response.status_code == 400
+        assert "CLIENT_ID" in response.text
+    await services.http.aclose()
+
+
+@pytest.mark.parametrize("cancel", [True, False])
+async def test_chat_connect_cancel_or_failed_callback(tmp_path: Path, cancel: bool) -> None:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    services = Services(
+        Settings(
+            spotify_client_id="client", spotify_redirect_uri=f"http://127.0.0.1:{port}/callback"
+        ),
+        tmp_path / "db",
+        tmp_path / "auth",
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+        headers = {"X-TuneTrail-Token": token}
+
+        async def chat(message: str) -> httpx.Response:
+            return await client.post("/api/chat", json={"message": message}, headers=headers)
+
+        assert (await chat("log in to spotify")).json()["spotify_connection"]["status"] == "pending"
+        if cancel:
+            await chat("cancel spotify login")
+        else:
+            async with httpx.AsyncClient() as browser:
+                await browser.get(
+                    f"http://127.0.0.1:{port}/callback", params={"code": "test", "state": "wrong"}
+                )
+            assert services.connect_task is not None
+            await asyncio.wait_for(services.connect_task, 2)
+        status = (await chat("spotify login status")).json()["spotify_connection"]["status"]
+        assert status == ("cancelled" if cancel else "failed")
+        assert not services.credentials.exists()
+    await services.http.aclose()
