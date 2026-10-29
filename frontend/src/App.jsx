@@ -27,6 +27,7 @@ function connectionMessage(connection) {
 }
 
 function replyFor(result) {
+  if (result.song_message) return { text: result.song_message };
   if (result.control) return { text: `Spotify ${result.control} request sent. Check the player for its current state.` };
   if (result.device_message) return { text: result.device_message };
   if (Array.isArray(result.devices)) return { text: result.devices.length ? 'Available Spotify devices:' : 'No Spotify devices found. Open Spotify on a device and try again.', devices: result.devices };
@@ -132,7 +133,7 @@ export default function App({ api = apiDefault }) {
       const context = [...contextRef.current.compressed, ...contextRef.current.recent];
       const result = await api.post('/api/chat', context.length ? { message: submitted, context } : { message: submitted });
       // Never retain Spotify responses or requests that produced them as model context.
-      if (result.control || result.device_message || result.devices || result.spotify_connection || result.recent_plays) {
+      if (result.control || result.song_message || result.device_message || result.devices || result.spotify_connection || result.recent_plays) {
         contextRef.current = { recent: [], compressed: [] };
       } else if (!/spotify:|open\.spotify\.com|https?:\/\//i.test(submitted)) {
         const recent = [...contextRef.current.recent, submitted.slice(0, 500)];
@@ -147,7 +148,7 @@ export default function App({ api = apiDefault }) {
         setConnection((previous) => next.status === 'pending' && !url && previous?.status === 'pending' ? previous : { ...next, url });
       }
       setConversation((entries) => [...entries, { role: 'assistant', ...replyFor(result) }]);
-      if (result.control || result.device_transfer_requested || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
+      if (result.control || result.song_playback_requested || result.device_transfer_requested || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
     } catch (e) {
       setConversation((entries) => [...entries, { role: 'assistant', error: true, text: e.message || 'Request failed.' }]);
     } finally { pending.current = false; restoreFocus.current = true; setBusy(false); }

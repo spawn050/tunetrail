@@ -126,6 +126,23 @@ describe('chat-focused interface', () => {
     expect(api.post).toHaveBeenCalledTimes(2);
   });
 
+  it('renders song choices, clears context and refreshes after confirmed playback', async () => {
+    const api = mockApi(); const user = userEvent.setup();
+    api.post = vi.fn().mockResolvedValueOnce({ clarification: 'What song?' })
+      .mockResolvedValueOnce({ song_message: '1. A song — Artist\nSend select track 1' })
+      .mockResolvedValueOnce({ song_message: 'Play A song? Send confirm play.' })
+      .mockResolvedValueOnce({ song_message: 'Spotify playback requested.', song_playback_requested: true });
+    render(<App api={api} />);
+    await send(user, 'hello');
+    await send(user, 'play a song');
+    expect(await screen.findByText(/1. A song/)).toBeInTheDocument();
+    await send(user, 'select track 1');
+    expect(api.post.mock.calls[2][1]).toEqual({ message: 'select track 1' });
+    await send(user, 'confirm play');
+    expect(await screen.findByText('Spotify playback requested.')).toBeInTheDocument();
+    await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/api/now-playing').length).toBeGreaterThanOrEqual(2));
+  });
+
   it('shows errors and does not retry a failed player request', async () => {
     const api = mockApi(); const user = userEvent.setup();
     api.post = vi.fn(async () => { throw new Error('Check Spotify before retrying; the request may have succeeded.'); });

@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 import secrets
 import time
 from contextlib import suppress
@@ -36,6 +37,7 @@ from tunetrail.domain.models import (
     ExplicitPreference,
     PlaybackAction,
     PreferenceSource,
+    ResolvedTrack,
 )
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
 from tunetrail.llm.intent_parser import IntentParseError, StructuredPreferenceParser
@@ -76,6 +78,20 @@ SPOTIFY_CONNECT_CANCEL_COMMANDS = {"cancel spotify connection", "cancel spotify 
 SPOTIFY_REPLACE_CONFIRMATION = "confirm replace spotify credentials"
 
 
+def song_label(track: ResolvedTrack) -> str:
+    """Describe the specific Spotify version without exposing its identifier."""
+    album = f" — {track.album}" if track.album else " — album unavailable"
+    duration = f" ({track.duration_ms // 60000}:{track.duration_ms // 1000 % 60:02d})"
+    return f"{track.title} — {', '.join(track.artists)}{album}{duration}"
+
+
+def song_confirmation_message(track: ResolvedTrack) -> str:
+    return (
+        f"Play {song_label(track)} on the active Spotify device? "
+        "Send 'confirm play' or 'cancel song'. Confirmation expires in five minutes."
+    )
+
+
 class Services:
     """Runtime dependencies and bounded, ephemeral discovery/preview state."""
 
@@ -89,6 +105,8 @@ class Services:
         self.connect_confirmation: tuple[bytes, float] | None = None
         self.device_lock = asyncio.Lock()
         self.device_confirmation: tuple[str, str, float] | None = None
+        self.song_choices: tuple[tuple[ResolvedTrack, ...], float] | None = None
+        self.song_confirmation: tuple[ResolvedTrack, float] | None = None
         self.profile = ExplicitProfileService(SQLitePersonalizationStore(database))
         self.http = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
         self.auth = SpotifyAuthenticator(
@@ -264,6 +282,67 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
 
     async def handle_chat(body: ChatInput) -> object:
         text = body.message.casefold().strip().rstrip(".!?")
+        if text in {"cancel song", "cancel playback"}:
+            services.song_choices = None
+            services.song_confirmation = None
+            return {"song_message": "Song selection cancelled."}
+        if text == "confirm play":
+            pending_song = services.song_confirmation
+            services.song_confirmation = None
+            services.song_choices = None
+            if pending_song is None or pending_song[1] <= time.monotonic():
+                raise HTTPException(409, "No current song confirmation. Search for the song again.")
+            track = pending_song[0]
+            devices = [d for d in await services.spotify.devices() if d.is_active]
+            if len(devices) != 1 or devices[0].is_restricted or not devices[0].id:
+                raise HTTPException(
+                    409, "No unique usable active Spotify device. Open Spotify and search again."
+                )
+            device_id = devices[0].id
+            params = {"device_id": device_id}
+            request_body = {"uris": [track.spotify_uri]}
+            approval = services.spotify.approvals.propose(
+                PlayerAction.create("PUT", "/me/player/play", params, request_body)
+            )
+            services.spotify.approvals.approve(approval)
+            try:
+                await services.spotify.start_playback(
+                    [track.spotify_uri], device_id=device_id, approval=approval
+                )
+            except (
+                SpotifyApiError,
+                SpotifyAuthorizationError,
+                httpx.HTTPError,
+                ValueError,
+            ) as error:
+                raise HTTPException(
+                    502,
+                    "Playback request failed or could not be confirmed and may have succeeded. "
+                    "Check Spotify before trying again.",
+                ) from error
+            return {
+                "song_message": (
+                    "Spotify playback requested. Check the player for its current state."
+                ),
+                "song_playback_requested": True,
+            }
+        selection = re.fullmatch(r"select track ([1-9]\d*)", text)
+        if selection:
+            choices = services.song_choices
+            if choices is None or choices[1] <= time.monotonic():
+                services.song_choices = None
+                raise HTTPException(409, "Song choices expired. Search for the song again.")
+            index = int(selection.group(1)) - 1
+            if index >= len(choices[0]):
+                return {"song_message": "Choose a number from the displayed track list."}
+            track = choices[0][index]
+            services.song_choices = None
+            services.song_confirmation = (track, time.monotonic() + 300)
+            return {"song_message": song_confirmation_message(track)}
+        # An unrelated message invalidates a pending song, preventing a later
+        # confirmation from applying to an old or obscured selection.
+        services.song_choices = None
+        services.song_confirmation = None
         if text in {"list devices", "show devices", "active devices"}:
             devices = await services.spotify.devices()
             return {
@@ -361,6 +440,38 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                     "retrying; the request may have succeeded.",
                 ) from error
             return {"control": command.action, "requested": True}
+        song_request = re.fullmatch(
+            r"(?i)(?:(?:please|can you|could you)\s+)?play\s+(.{1,200})",
+            body.message.strip(),
+        )
+        if song_request and not re.search(
+            r"^(?:something|anything)\b|\b(?:and then|then (?:pause|skip|shuffle))\b",
+            song_request.group(1),
+            re.IGNORECASE,
+        ):
+            query = song_request.group(1).strip()
+            services.song_choices = None
+            services.song_confirmation = None
+            tracks = tuple(await services.spotify.search_chat_tracks(query))
+            if not tracks:
+                return {
+                    "song_message": (
+                        "No explicitly playable tracks found in the first Spotify results. "
+                        "Try a more specific title or artist."
+                    )
+                }
+            if len(tracks) == 1:
+                services.song_confirmation = (tracks[0], time.monotonic() + 300)
+                return {"song_message": song_confirmation_message(tracks[0])}
+            services.song_choices = (tracks, time.monotonic() + 300)
+            listing = "\n".join(f"{i}. {song_label(track)}" for i, track in enumerate(tracks, 1))
+            return {
+                "song_message": (
+                    f"Spotify matches (first page, not necessarily all results):\n{listing}\n"
+                    "Send 'select track 1' (or another number), or 'cancel song'. "
+                    "Choices expire in five minutes."
+                )
+            }
         try:
             parser = (
                 services.parser

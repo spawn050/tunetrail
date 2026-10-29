@@ -172,6 +172,36 @@ class SpotifyClient:
                 results.append(candidate_from_track(item))
         return results
 
+    async def search_chat_tracks(self, query: str, *, limit: int = 5) -> Sequence[ResolvedTrack]:
+        """Return a bounded page of explicitly playable tracks for user selection.
+
+        Unlike discovery resolution, this does not assert catalog-wide uniqueness.
+        """
+        if not query.strip() or len(query) > 200 or not 1 <= limit <= 10:
+            raise ValueError("Invalid Spotify track search")
+        payload = _response_mapping(
+            await self._request(
+                "GET",
+                "/search",
+                params={"q": query, "type": "track", "limit": limit, "market": "from_token"},
+            )
+        )
+        page = _mapping_or_error(payload.get("tracks"))
+        items = page.get("items")
+        if not isinstance(items, list):
+            raise SpotifyPayloadError("Spotify search response was malformed")
+        rows = cast(list[object], items)
+        if len(rows) > limit:
+            raise SpotifyPayloadError("Spotify search response was malformed")
+        results: list[ResolvedTrack] = []
+        for value in rows:
+            item = _mapping_or_error(value)
+            if item.get("is_playable") is True and not item.get("restrictions"):
+                track = catalog_item_from_track(item).track
+                if track is not None and track.spotify_uri == f"spotify:track:{track.spotify_id}":
+                    results.append(track)
+        return results
+
     async def search_catalog(
         self, query: str, *, kind: CatalogItemKind, limit: int = 10
     ) -> Sequence[CatalogItem]:
