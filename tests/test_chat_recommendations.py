@@ -128,3 +128,40 @@ async def test_saved_artist_and_provider_failure(tmp_path: Path) -> None:
         assert "unavailable" in response.json()["recommendation_message"]
         services.musicbrainz.search_artists_independent.assert_awaited_once_with("Example")
     await services.http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_empty_results_expiry_and_discovery_failure(tmp_path: Path) -> None:
+    services = Services(Settings(), tmp_path / "db", tmp_path / "auth")
+    services.musicbrainz.search_artists_independent = AsyncMock(return_value=[])
+    services.discovery.discover = AsyncMock(return_value=DiscoveryResult((), 1, True))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
+        token = (await client.get("/api/session")).json()["token"]
+
+        async def chat(message: str, state: str | None = None) -> dict[str, object]:
+            response = await client.post(
+                "/api/chat",
+                headers={"x-tunetrail-token": token},
+                json={"message": message, **({"recommendation_state": state} if state else {})},
+            )
+            assert response.status_code == 200
+            return response.json()  # type: ignore[no-any-return]
+
+        initial = await chat("suggest some songs")
+        empty = await chat("artist: Nobody", str(initial["recommendation_state"]))
+        assert "No artist matches" in str(empty["recommendation_message"])
+        services.musicbrainz.search_artists_independent.return_value = [
+            ArtistMatch(ARTIST_ID, "Example", "singer")
+        ]
+        found = await chat("artist: Example", str(empty["recommendation_state"]))
+        state = str(found["recommendation_state"])
+        services.recommendation_states[state] = (0, services.recommendation_states[state][1])
+        assert "expired" in str((await chat("select artist 1", state))["recommendation_message"])
+        services.discovery.discover.assert_not_awaited()
+        fresh = await chat("suggest some songs")
+        found = await chat("artist: Example", str(fresh["recommendation_state"]))
+        answer = await chat("select artist 1", str(found["recommendation_state"]))
+        assert "unavailable" in str(answer["recommendation_message"])
+    await services.http.aclose()

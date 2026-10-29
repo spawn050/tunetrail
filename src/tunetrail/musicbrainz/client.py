@@ -159,9 +159,14 @@ class MusicBrainzClient:
                 not isinstance(artist_name, str)
                 or not artist_name.strip()
                 or len(artist_name) > 200
+                or any(ord(c) < 32 for c in artist_name)
             ):
                 raise MusicBrainzError("MusicBrainz returned invalid artist results.")
-            if not isinstance(description, str) or len(description) > 300:
+            if (
+                not isinstance(description, str)
+                or len(description) > 300
+                or any(ord(c) < 32 for c in description)
+            ):
                 raise MusicBrainzError("MusicBrainz returned invalid artist results.")
             if re_spotify_reference(artist_name) or re_spotify_reference(description):
                 continue

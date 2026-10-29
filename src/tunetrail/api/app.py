@@ -314,7 +314,7 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
             services.recommendation_states[key] = (time.monotonic() + 300, choices)
             return {"recommendation_message": message, "recommendation_state": key}
 
-        async def find_recommendation_artist(name: str) -> object:
+        async def find_recommendation_artist(name: str, *, saved: bool = False) -> object:
             services.song_choices = None
             services.song_confirmation = None
             if (
@@ -341,8 +341,9 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 f"{i}. {m.name} — {m.disambiguation or 'no description available'}"
                 for i, m in enumerate(matches, 1)
             )
+            reason = "Using your saved artist preference. " if saved else ""
             return recommendation_reply(
-                f"MusicBrainz artist matches (first page):\n{listing}\n"
+                f"{reason}MusicBrainz artist matches (first page):\n{listing}\n"
                 "Send 'select artist 1' or another number, or 'cancel recommendations'. "
                 "Choices expire in five minutes.",
                 matches,
@@ -420,7 +421,7 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 p for p in preferences if p.subject is PreferenceSubject.ARTIST and p.strength > 0
             ]
             if len(artists) == 1:
-                return await find_recommendation_artist(artists[0].name)
+                return await find_recommendation_artist(artists[0].name, saved=True)
             return recommendation_reply(
                 "Tell me an artist you like, for example 'artist: Taylor Swift'. "
                 "I can suggest their recordings, but not yet verify similar artists. "
