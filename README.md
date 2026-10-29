@@ -51,10 +51,10 @@ controls. Enter sends a message; Shift+Enter adds a line.
 - If the browser cannot connect, start the API from the repository root and use
   the loopback address above. The interface can retry a failed connection.
 - Spotify authentication errors may mean missing, expired, or revoked credentials;
-  use Connect Spotify in the interface. See [Spotify setup](docs/spotify-setup.md).
+  send `connect Spotify` in chat. See [Spotify setup](docs/spotify-setup.md).
   Failed refresh preserves the credential file. Check scopes, Premium entitlement,
   and device restrictions if access is denied.
-- Open Spotify on an active device and refresh the device list if no device is
+- Open Spotify on an active device if no device is
   available. Rate limits and network failures may require waiting or retrying a
   read. After a failed playback request, inspect Spotify first: the request might
   have succeeded. Playback previews require a fresh preview and approval; a new
@@ -62,12 +62,10 @@ controls. Enter sends a message; Shift+Enter adds a line.
 - Chat needs a configured hosted provider and may fail on invalid model output;
   check configuration or rephrase. Chat leaves the machine, but raw chat is not
   persisted by the explicit-profile service.
-- Source status reports configuration, not a live health check. MusicBrainz needs
-  independently obtained IDs. ReccoBeats is optional per discovery and off by
-  default; an outage or missing features can result in fewer suggestions.
-- Inspect and remove individual explicit preferences in Profile; reset requires a
-  confirmation and removes only explicit preference rows. There is no profile
-  export or credential cleanup control in the redesigned interface. Do not delete,
+- Discovery and profile-management controls are not currently available in the chat
+  UI; their existing backend APIs are retained. MusicBrainz requires independently
+  obtained IDs, and optional ReccoBeats enrichment remains provisional.
+- There is no profile export or credential cleanup control in the interface. Do not delete,
   move, or replace legacy data, databases, credentials, or exports without the
   owner's separate decision. Incompatible databases are left untouched.
 

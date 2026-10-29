@@ -17,7 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait
 
 from tests.test_api_flow import Parser, Source
 from tests.test_spotify_models import track_payload
@@ -26,6 +26,7 @@ from tunetrail.auth.models import OAuthToken
 from tunetrail.auth.service import SpotifyAuthenticator
 from tunetrail.auth.store import FileCredentialStore
 from tunetrail.config import Settings
+from tunetrail.domain.models import ChatInterpretation, RecentPlaysQuery
 from tunetrail.recommendation.independent_discovery import IndependentDiscovery
 from tunetrail.spotify.client import SpotifyClient
 
@@ -60,6 +61,15 @@ def test_browser_to_backend_offline_flow(tmp_path: Path) -> None:
             return httpx.Response(204)
         if request.method == "GET" and request.url.path == "/v1/me/player":
             return httpx.Response(204)
+        if request.method == "GET" and request.url.path == "/v1/me/player/recently-played":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"track": track_payload(), "played_at": datetime.now(UTC).isoformat()}
+                    ]
+                },
+            )
         raise AssertionError(f"Unexpected provider request: {request.method} {request.url}")
 
     settings = Settings(spotify_api_url="https://api.example/v1")
@@ -85,7 +95,14 @@ def test_browser_to_backend_offline_flow(tmp_path: Path) -> None:
     )
     services.spotify = SpotifyClient(services.auth, services.http, api_url=settings.spotify_api_url)
     services.discovery = IndependentDiscovery(Source())
-    services.parser = Parser()
+
+    class BrowserParser(Parser):
+        async def parse(self, request: str) -> ChatInterpretation:
+            if request == "recent plays":
+                return ChatInterpretation(recent_plays=RecentPlaysQuery(period="recent"))
+            return await super().parse(request)
+
+    services.parser = BrowserParser()
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(128)
@@ -121,44 +138,57 @@ def test_browser_to_backend_offline_flow(tmp_path: Path) -> None:
                 EC.element_to_be_clickable((By.XPATH, f"//button[normalize-space()='{label}']"))
             ).click()
 
-        wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//summary[text()='Settings and discovery']"))
-        ).click()
-        text("No explicit preferences yet.")
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "fieldset:not([disabled])")))
+        wait.until(EC.element_to_be_clickable((By.ID, "message")))
         browser.find_element(By.ID, "message").send_keys("I like Artist")
         click("Send chat")
-        wait.until(
-            EC.presence_of_element_located((By.XPATH, "//li[contains(., 'artist: Artist')]"))
-        )
-        Select(
-            browser.find_element(By.XPATH, "//label[starts-with(., 'Seed type')]/select")
-        ).select_by_value("recording")
-        browser.find_element(
-            By.XPATH, "//label[starts-with(., 'Independent MusicBrainz UUID')]/input"
-        ).send_keys("00000000-0000-0000-0000-000000000001")
-        browser.find_element(By.XPATH, "//label[contains(., 'I obtained this ID')]/input").click()
-        click("Discover")
-        text("Suggested music (MusicBrainz)")
-        click("Create preview")
-        text("Review before approval")
-        text("artist preference: Artist")
-        assert not any("/player/play" in call for call in calls)
-        cancelled = next(iter(services.proposals))
-        click("Cancel preview")
-        wait.until(
-            EC.invisibility_of_element_located((By.XPATH, "//h3[text()='Review before approval']"))
-        )
-        assert not any("/player/play" in call for call in calls)
-        click("Create preview")
-        text("Review before approval")
-        proposal = next(iter(services.proposals))
-        assert proposal != cancelled
-        click("Approve play now")
-        text("Playback request sent")
-        assert calls.count("PUT /v1/me/player/play") == 1
+        text("Clear lasting preferences saved")
+        browser.find_element(By.ID, "message").send_keys("recent plays")
+        click("Send chat")
+        text("Recent Spotify plays:")
+        text("Results may not cover")
+        assert not browser.find_elements(By.XPATH, "//summary[text()='Settings and discovery']")
+        # Discovery and previews are no longer in the UI; preserve their backend regression.
         with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False) as client:
             token = client.get("/api/session").json()["token"]
+            headers = {"x-tunetrail-token": token}
+            assert client.get("/api/preferences").json()[0]["name"] == "Artist"
+            discovery = client.post(
+                "/api/discovery",
+                headers=headers,
+                json={
+                    "seeds": [
+                        {
+                            "kind": "recording",
+                            "musicbrainz_id": "00000000-0000-0000-0000-000000000001",
+                        }
+                    ],
+                    "limit": 1,
+                    "independently_obtained": True,
+                },
+            ).json()["discovery_id"]
+            preview_body = {"discovery_id": discovery, "intent": {"queue_size": 1}}
+            preview = client.post("/api/preview", headers=headers, json=preview_body).json()
+            cancelled = preview["proposal_id"]
+            assert not any("/player/play" in call for call in calls)
+            assert (
+                client.post(
+                    "/api/cancel", headers=headers, json={"proposal_id": cancelled}
+                ).status_code
+                == 200
+            )
+            proposal = client.post("/api/preview", headers=headers, json=preview_body).json()[
+                "proposal_id"
+            ]
+            assert proposal != cancelled
+            assert (
+                client.post(
+                    "/api/approval",
+                    headers=headers,
+                    json={"proposal_id": proposal, "explicitly_approve": True},
+                ).status_code
+                == 200
+            )
+            assert calls.count("PUT /v1/me/player/play") == 1
             for identifier in (cancelled, proposal):
                 response = client.post(
                     "/api/approval",
@@ -166,12 +196,10 @@ def test_browser_to_backend_offline_flow(tmp_path: Path) -> None:
                     json={"proposal_id": identifier, "explicitly_approve": True},
                 )
                 assert response.status_code == 404
-        assert calls.count("PUT /v1/me/player/play") == 1
-        fail_search = True
-        click("Create preview")
-        text("No approvable proposal is available.")
-        assert not browser.find_elements(By.XPATH, "//button[starts-with(., 'Approve')]")
-        assert calls.count("PUT /v1/me/player/play") == 1
+            fail_search = True
+            unavailable = client.post("/api/preview", headers=headers, json=preview_body).json()
+            assert unavailable["proposal_id"] is None
+            assert calls.count("PUT /v1/me/player/play") == 1
     finally:
         if browser is not None:
             browser.quit()

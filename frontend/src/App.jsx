@@ -9,45 +9,55 @@ function timeLabel(ms) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function authorizationUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'accounts.spotify.com' && url.port === '' && url.pathname === '/authorize' && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
+}
+
+function connectionMessage(connection) {
+  if (connection.message) return connection.message;
+  if (connection.cancelled || connection.status === 'cancelled') return 'Spotify authorization cancelled.';
+  if (connection.status === 'connected') return 'Spotify authorization completed. This does not verify playback.';
+  if (connection.status === 'failed') return 'Spotify authorization failed or timed out. Existing credentials were preserved.';
+  if (connection.status === 'pending') return 'Waiting for Spotify authorization. Open the authorization link if shown; it expires after three minutes.';
+  if (connection.status === 'confirmation_required') return 'A credential file exists. Send “confirm replace Spotify credentials” to authorize replacement, or “cancel Spotify connection” to cancel.';
+  return 'No Spotify authorization is in progress. Existing credential status does not verify access.';
+}
+
+function replyFor(result) {
+  if (result.control) return { text: `Spotify ${result.control} request sent. Check the player for its current state.` };
+  if (result.spotify_connection) return { text: connectionMessage(result.spotify_connection) };
+  if (Array.isArray(result.recent_plays)) return {
+    text: result.recent_plays.length ? 'Recent Spotify plays:' : 'No plays found in the available results.',
+    plays: result.recent_plays,
+    notice: result.notice,
+  };
+  if (result.clarification) return { text: `Clarification needed: ${result.clarification}` };
+  if (result.intent?.clarification_needed) return { text: 'Could you clarify your request?' };
+  if (result.preferences?.length) return { text: 'Clear lasting preferences saved to your profile.' };
+  return { text: 'I interpreted your request, but that action is not yet available through chat.' };
+}
+
 export default function App({ api = apiDefault }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [profile, setProfile] = useState([]);
   const [message, setMessage] = useState('');
-  const [interpretation, setInterpretation] = useState(null);
   const [conversation, setConversation] = useState([]);
   const [playback, setPlayback] = useState(null);
   const [playbackStatus, setPlaybackStatus] = useState('loading');
   const [playbackRefresh, setPlaybackRefresh] = useState(0);
-  const [query, setQuery] = useState('');
-  const [searchKind, setSearchKind] = useState('track');
-  const [results, setResults] = useState([]);
-  const [seed, setSeed] = useState('');
-  const [seedKind, setSeedKind] = useState('artist');
-  const [independent, setIndependent] = useState(false);
-  const [enrich, setEnrich] = useState(false);
-  const [discovery, setDiscovery] = useState(null);
-  const [survey, setSurvey] = useState(-1);
-  const [devices, setDevices] = useState([]);
-  const [device, setDevice] = useState('');
-  const [action, setAction] = useState('play_now');
-  const [preview, setPreview] = useState(null);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [sources, setSources] = useState(null);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
-  const [spotifySetup, setSpotifySetup] = useState(null);
-  const [spotifyUrl, setSpotifyUrl] = useState('');
-  const [replaceCredentials, setReplaceCredentials] = useState(false);
-  const previewRef = useRef(null);
+  const [connection, setConnection] = useState(null);
   const pending = useRef(false);
+  const conversationRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
-    api.start().then(() => api.get('/api/preferences')).then((data) => {
-      if (alive) { setProfile(data); setReady(true); }
-    }).catch((e) => { if (alive) setError(e.message); });
+    api.start().then(() => { if (alive) setReady(true); })
+      .catch((e) => { if (alive) setError(e.message || 'Could not connect to the local API.'); });
     return () => { alive = false; };
   }, [api, connectionAttempt]);
 
@@ -70,55 +80,66 @@ export default function App({ api = apiDefault }) {
   }, [api, ready, playbackRefresh]);
 
   useEffect(() => {
-    if (spotifySetup?.status !== 'pending') return undefined;
-    const timer = setInterval(async () => {
+    if (connection?.status !== 'pending') return undefined;
+    let alive = true;
+    let timer;
+    async function check() {
       try {
         const status = await api.get('/api/spotify/connect');
-        setSpotifySetup(status);
-        if (status.status !== 'pending') setSpotifyUrl('');
-      } catch { setError('Could not check Spotify connection status.'); }
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [api, spotifySetup?.status]);
+        if (!alive) return;
+        if (status.status !== 'pending') {
+          setConnection(status);
+          setConversation((entries) => [...entries, { role: 'assistant', text: connectionMessage(status) }]);
+          if (status.status === 'connected') setPlaybackRefresh((n) => n + 1);
+          return;
+        }
+      } catch {
+        if (!alive) return;
+        setConnection(null);
+        setConversation((entries) => [...entries, { role: 'assistant', error: true, text: 'Could not check Spotify connection status. Send “Spotify connection status” to check again.' }]);
+        return;
+      }
+      timer = setTimeout(check, 2000);
+    }
+    timer = setTimeout(check, 2000);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [api, connection?.status]);
 
-  async function run(fn) {
-    if (pending.current) return;
-    pending.current = true; setBusy(true); setError(''); setNotice('');
-    try { await fn(); } catch (e) { setError(e.message || 'Request failed'); }
-    finally { pending.current = false; setBusy(false); }
+  useEffect(() => {
+    if (conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
+  }, [conversation, connection]);
+
+  async function submit(e) {
+    e.preventDefault();
+    const submitted = message.trim();
+    if (!submitted || pending.current) return;
+    pending.current = true; setBusy(true); setMessage(''); setError('');
+    setConversation((entries) => [...entries, { role: 'user', text: submitted }]);
+    try {
+      const result = await api.post('/api/chat', { message: submitted });
+      if (result.spotify_connection) {
+        const next = result.spotify_connection;
+        const url = next.authorization_url ? authorizationUrl(next.authorization_url) : null;
+        if (next.authorization_url && !url) throw new Error('The Spotify authorization link was invalid.');
+        setConnection((previous) => next.status === 'pending' && !url && previous?.status === 'pending' ? previous : { ...next, url });
+      }
+      setConversation((entries) => [...entries, { role: 'assistant', ...replyFor(result) }]);
+      if (result.control || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
+    } catch (e) {
+      setConversation((entries) => [...entries, { role: 'assistant', error: true, text: e.message || 'Request failed.' }]);
+    } finally { pending.current = false; setBusy(false); }
   }
-  async function refreshProfile() { setProfile(await api.get('/api/preferences')); }
-  async function invalidate() {
-    const old = previewRef.current;
-    previewRef.current = null; setPreview(null);
-    if (old?.proposal_id) await api.post('/api/cancel', { proposal_id: old.proposal_id });
-  }
-  function changePreviewInput(change) {
-    // Drop the visible approval immediately, even if cancellation fails.
-    run(async () => { await invalidate(); change(); });
-  }
-  async function feedback(item, response, source) {
-    await invalidate();
-    await api.post('/api/feedback', {
-      subject: 'recording', name: item.title, artist: item.artists.join(', '),
-      musicbrainz_id: item.recording_id, response, source,
-    });
-    await refreshProfile();
-    setNotice(response === 'skip' || response === 'not_familiar' ? 'No preference changed.' : 'Lasting preference saved.');
-  }
-  const candidates = discovery?.result.candidates ?? [];
 
   return <main className="app-shell">
     <header className="app-header"><h1>♪ TuneTrail</h1></header>
     {error && <p role="alert" className="error">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
     {!ready && <><p>Connecting to the local API…</p>{error && <button onClick={() => { setError(''); setConnectionAttempt((n) => n + 1); }}>Retry connection</button>}</>}
     <section className="now-playing" aria-label="Spotify now playing">
       <div className="album-placeholder" aria-hidden="true">♪</div>
       <div className="track-info">
         <p className="eyebrow">SPOTIFY · NOW PLAYING</p>
         {playbackStatus === 'loading' && <p>Checking Spotify…</p>}
-        {playbackStatus === 'error' && <p>Could not load Spotify playback. Check your connection and settings.</p>}
+        {playbackStatus === 'error' && <p>Could not load Spotify playback. Check your connection.</p>}
         {playbackStatus === 'ready' && !playback && <p>No Spotify track available right now.</p>}
         {playbackStatus === 'ready' && playback && <>
           <h2>{playback.title}</h2><p>{playback.artists.join(', ')}</p>
@@ -129,129 +150,16 @@ export default function App({ api = apiDefault }) {
         </>}
       </div>
     </section>
-    <details className="settings"><summary>Settings and discovery</summary>
-    <fieldset disabled={!ready || busy}>
-      <section><h2>Connect Spotify</h2>
-        <p>Configure your Spotify client ID and registered loopback redirect URI in .env, then restart TuneTrail. See docs/spotify-setup.md.</p>
-        <button onClick={() => run(async () => setSpotifySetup(await api.get('/api/spotify/connect')))}>Check Spotify setup</button>
-        {spotifySetup && <>
-          {!spotifySetup.configured && <p>Set TUNETRAIL_SPOTIFY_CLIENT_ID in .env and restart TuneTrail.</p>}
-          {spotifySetup.credential_exists && <p>A local Spotify credential file exists; its validity has not been checked.</p>}
-          {spotifySetup.status === 'connected' && <p role="status">Spotify authorization completed.</p>}
-          {spotifySetup.status === 'failed' && <p role="alert">Spotify authorization failed or timed out. Existing credentials were preserved. Check the redirect URI, port, and connection, then try again.</p>}
-          {spotifySetup.status === 'cancelled' && <p>Spotify authorization cancelled.</p>}
-          {spotifySetup.status === 'pending' ? <>
-            <p>Waiting for Spotify authorization. This expires after three minutes.</p>
-            {spotifyUrl && <a href={spotifyUrl} target="_blank" rel="noopener noreferrer">Open Spotify authorization</a>}
-            <button onClick={() => run(async () => { await api.post('/api/spotify/connect/cancel', {}); setSpotifyUrl(''); setSpotifySetup(await api.get('/api/spotify/connect')); })}>Cancel Spotify connection</button>
-          </> : spotifySetup.configured && <>
-            {spotifySetup.credential_exists && <label><input type="checkbox" checked={replaceCredentials} onChange={(e) => setReplaceCredentials(e.target.checked)} /> I authorize replacing the existing Spotify credential file</label>}
-            <button disabled={spotifySetup.credential_exists && !replaceCredentials} onClick={() => run(async () => {
-              const result = await api.post('/api/spotify/connect', { replace_existing: replaceCredentials });
-              setSpotifyUrl(result.authorization_url); setReplaceCredentials(false);
-              setSpotifySetup((previous) => ({ ...previous, status: 'pending' }));
-            })}>Connect Spotify</button>
-          </>}
-        </>}
-      </section>
-      <section><h2>Source status</h2>
-        <p>Status describes configuration, not live availability. ReccoBeats is enabled separately for each discovery below.</p>
-        <button onClick={() => run(async () => setSources(await api.get('/api/sources')))}>Show source status</button>
-        {sources && <ul>{Object.entries(sources).map(([name, status]) => <li key={name}><strong>{name}</strong>: {status}</li>)}</ul>}
-      </section>
-      <section><h2>Spotify catalog search</h2>
-        <p>Search is for reference only. Spotify results are never used as independent discovery seeds or feedback identities.</p>
-        <form onSubmit={(e) => { e.preventDefault(); run(async () => setResults(await api.get(`/api/catalog-search?q=${encodeURIComponent(query)}&kind=${searchKind}`))); }}>
-          <label>Search type <select value={searchKind} onChange={(e) => setSearchKind(e.target.value)}><option value="track">Track</option><option value="artist">Artist</option></select></label>
-          <label>Search Spotify <input value={query} onChange={(e) => setQuery(e.target.value)} required maxLength={200} /></label><button>Search</button>
-        </form>
-        <ul>{results.map((r) => <li key={r.spotify_uri}>{r.title}{r.subtitle ? ` — ${r.subtitle}` : ''} <small>Spotify</small></li>)}</ul>
-      </section>
-
-      <section><h2>Independent discovery</h2>
-        <p>Supply a MusicBrainz UUID obtained independently, not translated from Spotify data. Namesake search is not available. ReccoBeats estimates are optional and provisional; its foundational metadata is Spotify-derived.</p>
-        <form onSubmit={(e) => { e.preventDefault(); run(async () => {
-          await invalidate(); setDiscovery(null); setSurvey(-1);
-          const result = await api.post('/api/discovery', { seeds: [{ kind: seedKind, musicbrainz_id: seed }], independently_obtained: independent, limit: 10, enrich });
-          setDiscovery(result);
-        }); }}>
-          <label>Seed type <select value={seedKind} onChange={(e) => setSeedKind(e.target.value)}><option value="artist">Artist</option><option value="recording">Recording</option></select></label>
-          <label>Independent MusicBrainz UUID <input value={seed} onChange={(e) => setSeed(e.target.value)} required /></label>
-          <label><input type="checkbox" checked={independent} onChange={(e) => setIndependent(e.target.checked)} required /> I obtained this ID independently of Spotify.</label>
-          <label><input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} /> Request provisional ReccoBeats estimates</label>
-          <button>Discover</button>
-        </form>
-        {discovery && <><p>{discovery.result.source_failures} source failures. {discovery.result.needs_more_seeds ? 'Fewer results than requested; try more independent seeds.' : ''}</p>
-          <h3>Suggested music (MusicBrainz)</h3>
-          {candidates.length === 0 && <p>No suggestions available.</p>}
-          <ul className="tiles">{candidates.map((item) => <li key={item.recording_id}><strong>{item.title}</strong> — {item.artists.join(', ')}
-            <div><button onClick={() => run(() => feedback(item, 'like', 'tile'))}>Like {item.title}</button> <button onClick={() => run(() => feedback(item, 'dislike', 'tile'))}>Dislike {item.title}</button></div>
-          </li>)}</ul>
-          {candidates.length > 0 && <button onClick={() => setSurvey(0)}>Start survey</button>}
-          {survey >= 0 && survey < candidates.length && <div><h3>Survey {survey + 1} of {candidates.length}</h3><p>{candidates[survey].title} — {candidates[survey].artists.join(', ')}</p>
-            {['like', 'dislike', 'not_familiar', 'skip'].map((value) => <button key={value} onClick={() => run(async () => { await feedback(candidates[survey], value, 'survey'); setSurvey(survey + 1); })}>{value.replace('_', ' ')}</button>)}
-          </div>}
-          {survey === candidates.length && survey >= 0 && <p>Survey complete.</p>}
-        </>}
-      </section>
-
-      <section><h2>Profile</h2><p>Strength: -2 strongly dislike, -1 dislike, 0 neutral/mixed, +1 like, +2 strongly like.</p>
-        {profile.length === 0 ? <p>No explicit preferences yet.</p> : <ul>{profile.map((p) => <li key={`${p.subject}-${p.name}-${p.artist || ''}-${p.musicbrainz_id || ''}`}>
-          {p.subject}: {p.name}{p.artist ? ` — ${p.artist}` : ''} ({p.strength > 0 ? '+' : ''}{p.strength}; {p.source}){' '}
-          <button onClick={() => run(async () => { await invalidate(); await api.post('/api/preferences/remove', { subject: p.subject, name: p.name, artist: p.artist, musicbrainz_id: p.musicbrainz_id, strength: p.strength }); await refreshProfile(); })}>Remove {p.name}</button>
-        </li>)}</ul>}
-        <label><input type="checkbox" checked={confirmReset} onChange={(e) => setConfirmReset(e.target.checked)} /> Confirm removal of all explicit preferences only</label>
-        <button disabled={!confirmReset} onClick={() => run(async () => { await invalidate(); await api.post('/api/preferences/reset', { confirm_reset: true }); await refreshProfile(); setConfirmReset(false); setNotice('Explicit preferences reset.'); })}>Reset explicit profile</button>
-      </section>
-
-      <section><h2>Playback preview</h2>
-        <p>Spotify Premium and an active device are required. Queue append requires one track per approval.</p>
-        <button onClick={() => run(async () => setDevices(await api.get('/api/devices')))}>Refresh devices</button>
-        <label>Device <select value={device} onChange={(e) => { const value = e.target.value; changePreviewInput(() => setDevice(value)); }}><option value="">Spotify active device (may change)</option>{devices.filter((d) => d.id).map((d) => <option key={d.id} value={d.id} disabled={d.is_restricted}>{d.name}{d.is_active ? ' (active)' : ''}{d.is_restricted ? ' (restricted)' : ''}</option>)}</select></label>
-        <label>Action <select value={action} onChange={(e) => { const value = e.target.value; changePreviewInput(() => setAction(value)); }}><option value="play_now">Play now</option><option value="append_queue">Append one track</option></select></label>
-        <button disabled={!discovery || !!interpretation?.clarification || !!interpretation?.intent?.clarification_needed} onClick={() => run(async () => {
-          await invalidate();
-          const intent = { ...(interpretation?.intent || {}), action, ...(action === 'append_queue' ? { queue_size: 1 } : {}) };
-          const result = await api.post('/api/preview', { discovery_id: discovery.discovery_id, intent, device_id: device || null });
-          previewRef.current = result; setPreview(result);
-        })}>Create preview</button>
-        {preview && <div><h3>Review before approval</h3>
-          <p>Action: {action === 'play_now' ? 'Play now' : 'Append to queue'}; device: {devices.find((d) => d.id === device)?.name || (device || 'Spotify active device')}.</p>
-          <ol>{preview.matches.map((match) => <li key={match.uri}><strong>{match.title}</strong> — {match.artists.join(', ')}<p>Spotify URI: {match.uri}</p><p>Match: {match.evidence}</p><p>Ranking: {JSON.stringify(match.ranked.signals)}; score: {match.ranked.score}</p></li>)}</ol>
-          {preview.issues.map((issue, i) => <p className="error" key={i}>{issue}</p>)}
-          {!preview.proposal_id && <p>No approvable proposal is available.</p>}
-          {preview.proposal_id && <button onClick={() => run(async () => {
-            const id = previewRef.current?.proposal_id; previewRef.current = null; setPreview(null);
-            try { await api.post('/api/approval', { proposal_id: id, explicitly_approve: true }); setNotice('Playback request sent; this is not evidence of listening.'); }
-            catch (e) { throw new Error(`${e.message}. The request may have succeeded; inspect Spotify playback before retrying.`); }
-          })}>Approve {action === 'play_now' ? 'play now' : 'queue append'}</button>}
-          <button onClick={() => run(invalidate)}>Cancel preview</button>
-        </div>}
-      </section>
-    </fieldset>
-    </details>
-    <section className="conversation" aria-label="Conversation" aria-live="polite">
-      {conversation.length === 0 && <div className="chat-entry assistant"><strong>TuneTrail</strong><p>What would you like to listen to?</p></div>}
+    <section ref={conversationRef} className="conversation" aria-label="Conversation" aria-live="polite">
+      {conversation.length === 0 && <div className="chat-entry assistant"><strong>TuneTrail</strong><p>Say “connect Spotify” to sign in, or ask about your recent plays.</p></div>}
       {conversation.map((entry, index) => <div className={`chat-entry ${entry.role}`} key={index}>
-        <strong>{entry.role === 'user' ? 'You' : 'TuneTrail'}</strong><p>{entry.text}</p>
-        {entry.intent && <details><summary>Interpreted request</summary><pre>{JSON.stringify(entry.intent, null, 2)}</pre></details>}
+        <strong>{entry.role === 'user' ? 'You' : 'TuneTrail'}</strong><p role={entry.error ? 'alert' : undefined}>{entry.text}</p>
+        {entry.plays?.length > 0 && <ol>{entry.plays.map((play, i) => <li key={i}><strong>{play.title}</strong> — {play.artists.join(', ')} <time dateTime={play.played_at}>{new Date(play.played_at).toLocaleString()}</time></li>)}</ol>}
+        {entry.notice && <p className="coverage">{entry.notice}</p>}
       </div>)}
+      {connection?.status === 'pending' && connection.url && <div className="chat-entry assistant"><a href={connection.url} target="_blank" rel="noopener noreferrer">Open Spotify authorization</a></div>}
     </section>
-    <form className="composer" onSubmit={(e) => { e.preventDefault(); run(async () => {
-      const submitted = message;
-      await invalidate();
-      const result = await api.post('/api/chat', { message: submitted });
-      setMessage('');
-      if (result.control) {
-        setConversation((entries) => [...entries, { role: 'user', text: submitted }, { role: 'assistant', text: `Spotify ${result.control} request sent. Check the player for its current state.` }]);
-        setPlaybackRefresh((n) => n + 1);
-        return;
-      }
-      setInterpretation(result);
-      const reply = result.clarification ? `Clarification needed: ${result.clarification}` : result.intent?.clarification_needed ? 'Could you clarify your request?' : result.preferences?.length ? 'Clear lasting preferences saved to your profile.' : 'I interpreted your request. Open settings and discovery to continue.';
-      setConversation((entries) => [...entries, { role: 'user', text: submitted }, { role: 'assistant', text: reply, intent: result.intent }]);
-      await refreshProfile();
-    }); }}>
+    <form className="composer" onSubmit={submit}>
       <label className="sr-only" htmlFor="message">Request or lasting preference</label>
       <textarea id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -260,7 +168,7 @@ export default function App({ api = apiDefault }) {
         }
       }} />
       <button disabled={!ready || busy}>Send chat</button>
-      <p className="disclosure">Enter sends; Shift+Enter adds a line. Use exact commands: pause, play, resume, next track, or previous track. These run locally; other messages go to your configured hosted AI provider.</p>
+      <p className="disclosure">Enter sends; Shift+Enter adds a line. Exact Spotify login and playback commands run locally. Other chat goes to your configured hosted AI provider. Do not paste secrets or authorization links.</p>
     </form>
   </main>;
 }
