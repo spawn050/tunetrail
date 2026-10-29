@@ -55,6 +55,8 @@ export default function App({ api = apiDefault }) {
   const [connection, setConnection] = useState(null);
   const pending = useRef(false);
   const conversationRef = useRef(null);
+  const composerRef = useRef(null);
+  const restoreFocus = useRef(false);
   // Excerpts live only in this page's memory, never browser storage or server state.
   const contextRef = useRef({ recent: [], compressed: [] });
 
@@ -113,6 +115,13 @@ export default function App({ api = apiDefault }) {
     if (conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
   }, [conversation, connection, busy]);
 
+  useEffect(() => {
+    if (!busy && restoreFocus.current) {
+      composerRef.current?.focus();
+      restoreFocus.current = false;
+    }
+  }, [busy]);
+
   async function submit(e) {
     e.preventDefault();
     const submitted = message.trim();
@@ -141,7 +150,7 @@ export default function App({ api = apiDefault }) {
       if (result.control || result.device_transfer_requested || result.spotify_connection?.status === 'connected') setPlaybackRefresh((n) => n + 1);
     } catch (e) {
       setConversation((entries) => [...entries, { role: 'assistant', error: true, text: e.message || 'Request failed.' }]);
-    } finally { pending.current = false; setBusy(false); }
+    } finally { pending.current = false; restoreFocus.current = true; setBusy(false); }
   }
 
   return <main className="app-shell">
@@ -177,7 +186,7 @@ export default function App({ api = apiDefault }) {
     </section>
     <form className="composer" onSubmit={submit}>
       <label className="sr-only" htmlFor="message">Request or lasting preference</label>
-      <textarea id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => {
+      <textarea ref={composerRef} id="message" value={message} maxLength={4000} required placeholder="Ask TuneTrail about music…" disabled={!ready || busy} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
           if (!e.repeat) e.currentTarget.form.requestSubmit();

@@ -34,6 +34,7 @@ describe('chat-focused interface', () => {
     await act(async () => { finish(); });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Request or lasting preference')).toBeEnabled();
+    expect(screen.getByLabelText('Request or lasting preference')).toHaveFocus();
     expect(await screen.findByText(outcome === 'success' ? 'Clear lasting preferences saved to your profile.' : 'Request failed')).toBeInTheDocument();
   });
   it('shows now playing, chat, and no legacy panels', async () => {
