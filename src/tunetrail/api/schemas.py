@@ -16,6 +16,14 @@ class Input(BaseModel):
 
 class ChatInput(Input):
     message: str = Field(min_length=1, max_length=4000)
+    context: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("context")
+    @classmethod
+    def bounded_context(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() or len(item) > 500 for item in value):
+            raise ValueError("Invalid chat context")
+        return value
 
 
 class SpotifyConnectInput(Input):

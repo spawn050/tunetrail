@@ -55,6 +55,8 @@ export default function App({ api = apiDefault }) {
   const [connection, setConnection] = useState(null);
   const pending = useRef(false);
   const conversationRef = useRef(null);
+  // Excerpts live only in this page's memory, never browser storage or server state.
+  const contextRef = useRef({ recent: [], compressed: [] });
 
   useEffect(() => {
     let alive = true;
@@ -118,7 +120,17 @@ export default function App({ api = apiDefault }) {
     pending.current = true; setBusy(true); setMessage(''); setError('');
     setConversation((entries) => [...entries, { role: 'user', text: submitted }]);
     try {
-      const result = await api.post('/api/chat', { message: submitted });
+      const context = [...contextRef.current.compressed, ...contextRef.current.recent];
+      const result = await api.post('/api/chat', context.length ? { message: submitted, context } : { message: submitted });
+      // Never retain Spotify responses or requests that produced them as model context.
+      if (result.control || result.device_message || result.devices || result.spotify_connection || result.recent_plays) {
+        contextRef.current = { recent: [], compressed: [] };
+      } else if (!/spotify:|open\.spotify\.com|https?:\/\//i.test(submitted)) {
+        const recent = [...contextRef.current.recent, submitted.slice(0, 500)];
+        const compressed = [...contextRef.current.compressed];
+        if (recent.length > 4) compressed.push(recent.shift().slice(0, 160));
+        contextRef.current = { recent, compressed: compressed.slice(-4) };
+      }
       if (result.spotify_connection) {
         const next = result.spotify_connection;
         const url = next.authorization_url ? authorizationUrl(next.authorization_url) : null;
@@ -172,7 +184,7 @@ export default function App({ api = apiDefault }) {
         }
       }} />
       <button disabled={!ready || busy}>Send chat</button>
-      <p className="disclosure">Enter sends; Shift+Enter adds a line. Exact Spotify login and playback commands run locally. Other chat goes to your configured hosted AI provider. Do not paste secrets or authorization links.</p>
+      <p className="disclosure">Enter sends; Shift+Enter adds a line. Exact Spotify login and playback commands run locally. Other chat and bounded earlier user excerpts go to your configured hosted AI provider; context clears on refresh or close. Do not paste secrets or authorization links.</p>
     </form>
   </main>;
 }

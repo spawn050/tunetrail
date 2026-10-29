@@ -154,4 +154,23 @@ describe('chat-focused interface', () => {
     render(<App api={api} />); await send(user, 'play something peaceful');
     expect(await screen.findByText(/not yet available through chat/)).toBeInTheDocument();
   });
+
+  it('keeps bounded user-only excerpts in page memory and clears them after Spotify results', async () => {
+    const api = mockApi(); const user = userEvent.setup();
+    api.post = vi.fn(async (_path, body) => body.message === 'devices please'
+      ? { devices: [{ name: 'Private device', kind: 'Computer' }] }
+      : { clarification: 'What mood?' });
+    const view = render(<App api={api} />);
+    for (let i = 0; i < 10; i += 1) await send(user, `request ${i}`);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(10));
+    await send(user, 'follow up');
+    expect(api.post.mock.calls[10][1].context).toEqual(['request 2', 'request 3', 'request 4', 'request 5', 'request 6', 'request 7', 'request 8', 'request 9']);
+    await send(user, 'devices please');
+    await send(user, 'another request');
+    expect(api.post.mock.calls[12][1]).toEqual({ message: 'another request' });
+    view.unmount();
+    render(<App api={api} />);
+    await send(user, 'fresh page');
+    expect(api.post.mock.calls[13][1]).toEqual({ message: 'fresh page' });
+  });
 });

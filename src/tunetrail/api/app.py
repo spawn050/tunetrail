@@ -37,7 +37,7 @@ from tunetrail.domain.models import (
     PreferenceSource,
 )
 from tunetrail.llm.factory import LLMConfigurationError, OpenRouterLLMFactory
-from tunetrail.llm.intent_parser import IntentParseError
+from tunetrail.llm.intent_parser import IntentParseError, StructuredPreferenceParser
 from tunetrail.musicbrainz.client import MusicBrainzClient
 from tunetrail.persistence.sqlite_store import SQLitePersonalizationStore
 from tunetrail.reccobeats.client import ReccoBeatsEnricher
@@ -374,6 +374,26 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 or OpenRouterLLMFactory(services.settings).create_preference_parser()
             )
             interpretation = await services.profile.interpret_chat(body.message, parser)
+            # Context is advisory only: current-message interpretation alone decides
+            # Spotify actions and persistent preference writes.
+            if (
+                body.context
+                and isinstance(parser, StructuredPreferenceParser)
+                and not interpretation.spotify_action
+                and not interpretation.recent_plays
+                and not interpretation.preferences
+            ):
+                try:
+                    contextual = await parser.parse_with_context(body.message, body.context)
+                    if not (
+                        contextual.spotify_action
+                        or contextual.recent_plays
+                        or contextual.preferences
+                    ):
+                        interpretation = contextual
+                except Exception:
+                    # A failed optional contextual pass must not repeat a mutation.
+                    pass
         except LLMConfigurationError as error:
             raise HTTPException(503, str(error)) from error
         except IntentParseError as error:
