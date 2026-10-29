@@ -43,11 +43,20 @@ TuneTrail currently requests only:
 - `user-read-private`;
 - `user-read-playback-state` — list devices and inspect playback;
 - `user-read-currently-playing`;
-- `user-modify-playback-state` — start playback and add a track to the queue.
+- `user-modify-playback-state` — start playback and add a track to the queue;
+- `user-read-recently-played` — retrieve a bounded page of recent plays on request.
 
-The redesigned runtime does not ingest playlists, top tracks, or listening history.
-Existing credentials may have different scopes. Check Spotify's current developer
-documentation before using live features.
+Recent plays are filtered and returned locally, not sent to the hosted model or
+persisted. At most 50 plays are fetched; coverage of a requested period is not
+guaranteed. This use has unresolved Spotify policy questions; local processing does
+not establish clearance. Existing credentials may lack the new scope: reauthorization
+requires explicit confirmation before replacing the credential file. Check Spotify's
+current developer documentation before using live features.
+
+The chat API returns `recent_plays`, `period`, and a coverage `notice` for supported
+requests. Each play contains only title, artists, and play time. The current UI does
+not yet render this response; the chat-first UI update is deferred. Supported windows
+are recent, the last 24 hours, and a rolling seven days; statistics are not supported.
 
 ## Connect from the interface
 

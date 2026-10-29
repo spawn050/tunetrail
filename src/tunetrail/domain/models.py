@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -168,6 +168,15 @@ class ChatPreference(BaseModel):
         return self
 
 
+class RecentPlaysQuery(BaseModel):
+    """Allowlisted relative time window for a read-only Spotify query."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    period: Literal["last_24_hours", "last_7_days", "recent"]
+    limit: int = Field(default=20, ge=1, le=50, strict=True)
+
+
 class ChatInterpretation(BaseModel):
     """Validated temporary intent and explicit lasting preferences from one message."""
 
@@ -176,6 +185,7 @@ class ChatInterpretation(BaseModel):
     intent: ListeningIntent | None = None
     preferences: list[ChatPreference] = Field(default_factory=list[ChatPreference], max_length=20)
     clarification: str | None = Field(default=None, min_length=1, max_length=500)
+    recent_plays: RecentPlaysQuery | None = None
 
     @model_validator(mode="after")
     def validate_interpretation(self) -> "ChatInterpretation":
@@ -184,7 +194,14 @@ class ChatInterpretation(BaseModel):
             self.clarification is not None or (self.intent and self.intent.clarification_needed)
         ) and self.preferences:
             raise ValueError("ambiguous messages cannot update lasting preferences")
-        if self.intent is None and not self.preferences and self.clarification is None:
+        if self.recent_plays and (self.intent or self.preferences or self.clarification):
+            raise ValueError("recent plays must be requested separately")
+        if (
+            self.intent is None
+            and not self.preferences
+            and self.clarification is None
+            and not self.recent_plays
+        ):
             raise ValueError(
                 "an interpretation must contain an intent, preference or clarification"
             )

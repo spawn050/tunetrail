@@ -6,7 +6,7 @@ import secrets
 import time
 from contextlib import suppress
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -285,7 +285,7 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 services.parser
                 or OpenRouterLLMFactory(services.settings).create_preference_parser()
             )
-            return await services.profile.interpret_chat(body.message, parser)
+            interpretation = await services.profile.interpret_chat(body.message, parser)
         except ValueError:
             raise
         except Exception as error:
@@ -294,6 +294,27 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 "Chat provider failed or returned invalid output. "
                 "Check configuration and try rephrasing.",
             ) from error
+
+        if interpretation.recent_plays:
+            query = interpretation.recent_plays
+            plays = await services.spotify.recent_plays()
+            window = {"last_24_hours": timedelta(hours=24), "last_7_days": timedelta(days=7)}
+            cutoff = datetime.now(UTC) - window[query.period] if query.period in window else None
+            matching = [
+                play
+                for play in plays
+                if cutoff is None
+                or (isinstance(play["played_at"], datetime) and play["played_at"] >= cutoff)
+            ]
+            return {
+                "recent_plays": matching[: query.limit],
+                "period": query.period,
+                "notice": (
+                    "Spotify returned at most 50 recent plays. Results may not cover the "
+                    "entire requested period and may be further limited for display."
+                ),
+            }
+        return interpretation
 
     @app.get("/api/preferences")
     async def preferences() -> object:

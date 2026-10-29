@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Literal, cast
 
 import httpx
@@ -90,6 +91,48 @@ class SpotifyClient:
             raise SpotifyPayloadError("Spotify devices response was malformed")
         devices = cast(list[object], device_values)
         return [device_from_payload(_mapping_or_error(device)) for device in devices]
+
+    async def recent_plays(self) -> list[dict[str, object]]:
+        """Fetch one bounded page of track plays; retain no IDs or provider URLs."""
+        payload = _response_mapping(
+            await self._request("GET", "/me/player/recently-played", params={"limit": 50})
+        )
+        values = payload.get("items")
+        if not isinstance(values, list):
+            raise SpotifyPayloadError("Spotify recent-play response was malformed")
+        rows = cast(list[object], values)
+        if len(rows) > 50:
+            raise SpotifyPayloadError("Spotify recent-play response was malformed")
+        plays: list[dict[str, object]] = []
+        for value in rows:
+            item = _mapping_or_error(value)
+            track = _mapping_or_error(item.get("track"))
+            title = track.get("name")
+            artists = track.get("artists")
+            played_at = item.get("played_at")
+            if (
+                not isinstance(title, str)
+                or not title
+                or not isinstance(artists, list)
+                or not artists
+            ):
+                raise SpotifyPayloadError("Spotify recent-play response was malformed")
+            names: list[str] = []
+            for artist in cast(list[object], artists):
+                name = _mapping_or_error(artist).get("name")
+                if not isinstance(name, str) or not name:
+                    raise SpotifyPayloadError("Spotify recent-play response was malformed")
+                names.append(name)
+            if not isinstance(played_at, str):
+                raise SpotifyPayloadError("Spotify recent-play response was malformed")
+            try:
+                timestamp = datetime.fromisoformat(played_at.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    raise ValueError("Missing timezone")
+            except ValueError as error:
+                raise SpotifyPayloadError("Spotify recent-play response was malformed") from error
+            plays.append({"title": title, "artists": names, "played_at": timestamp.astimezone(UTC)})
+        return plays
 
     async def search_tracks(self, query: str, *, limit: int = 10) -> Sequence[Candidate]:
         """Search the Spotify catalog for at most ten tracks."""

@@ -32,12 +32,12 @@ def test_settings_loads_dotenv_then_environment(tmp_path: Path) -> None:
     assert settings.openrouter_api_key == "from-dotenv-key"
 
 
-def test_default_spotify_scopes_exclude_listening_history() -> None:
-    """Default authorization does not request legacy taste or history scopes."""
+def test_default_spotify_scopes_include_recent_plays_but_not_top_tracks() -> None:
+    """Recent plays require a read scope; legacy top-track profiling stays disabled."""
     settings = Settings()
 
     assert "user-top-read" not in settings.spotify_scopes
-    assert "user-read-recently-played" not in settings.spotify_scopes
+    assert "user-read-recently-played" in settings.spotify_scopes
     assert "playlist-read-private" not in settings.spotify_scopes
 
 
