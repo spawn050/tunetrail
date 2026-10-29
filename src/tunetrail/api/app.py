@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from tunetrail.api.player_commands import parse_player_command
 from tunetrail.api.schemas import (
     ApprovalInput,
     ChatInput,
@@ -68,22 +69,6 @@ class Proposal:
     device_id: str | None
     expires: float
 
-
-# Only complete, explicit commands authorize a player mutation. Never infer one
-# from model output or a message containing additional instructions.
-PLAYER_COMMANDS = {
-    "pause": ("pause", "PUT", "/me/player/pause"),
-    "pause playback": ("pause", "PUT", "/me/player/pause"),
-    "resume": ("resume", "PUT", "/me/player/play"),
-    "resume playback": ("resume", "PUT", "/me/player/play"),
-    "play": ("resume", "PUT", "/me/player/play"),
-    "next": ("next", "POST", "/me/player/next"),
-    "next track": ("next", "POST", "/me/player/next"),
-    "skip": ("next", "POST", "/me/player/next"),
-    "skip track": ("next", "POST", "/me/player/next"),
-    "previous": ("previous", "POST", "/me/player/previous"),
-    "previous track": ("previous", "POST", "/me/player/previous"),
-}
 
 SPOTIFY_CONNECT_COMMANDS = {"connect spotify", "log in to spotify", "login to spotify"}
 SPOTIFY_CONNECT_STATUS_COMMANDS = {"spotify connection status", "spotify login status"}
@@ -343,18 +328,26 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                 SpotifyConnectInput(replace_existing=True), expected_digest=expected_digest
             )
             return {"spotify_connection": {"status": "pending", **result}}
-        command = PLAYER_COMMANDS.get(text)
+        command = parse_player_command(body.message)
         if command:
-            action, method, path = command
             try:
                 approval = services.spotify.approvals.propose(
-                    PlayerAction.create(method, path, {}, None)
+                    PlayerAction.create(command.method, command.path, command.params, None)
                 )
                 services.spotify.approvals.approve(approval)
-                method_name = {"next": "next_track", "previous": "previous_track"}.get(
-                    action, action
-                )
-                await getattr(services.spotify, method_name)(approval=approval)
+                if command.path.endswith("/volume"):
+                    await services.spotify.set_volume(
+                        int(command.params["volume_percent"]), approval=approval
+                    )
+                elif command.path.endswith("/shuffle"):
+                    await services.spotify.set_shuffle(
+                        command.params["state"] == "true", approval=approval
+                    )
+                else:
+                    method_name = {"next": "next_track", "previous": "previous_track"}.get(
+                        command.action, command.action
+                    )
+                    await getattr(services.spotify, method_name)(approval=approval)
             except (
                 SpotifyApiError,
                 SpotifyAuthorizationError,
@@ -367,7 +360,7 @@ def create_app(services: Services, *, port: int = 8766) -> FastAPI:
                     "Check Spotify, your connection, Premium, and the active device before "
                     "retrying; the request may have succeeded.",
                 ) from error
-            return {"control": action, "requested": True}
+            return {"control": command.action, "requested": True}
         try:
             parser = (
                 services.parser

@@ -171,6 +171,22 @@ async def test_player_mutation_refreshes_playback(tmp_path: Path) -> None:
 
 
 @respx.mock
+async def test_volume_and_shuffle_require_exact_approvals(tmp_path: Path) -> None:
+    async with httpx.AsyncClient() as http_client:
+        client = await spotify_client(tmp_path, http_client, [])
+        with pytest.raises(ValueError):
+            await client.set_volume(40)
+        with pytest.raises(ValueError):
+            await client.set_shuffle(True)
+        with pytest.raises(ValueError):
+            await client.set_volume(101)
+        wrong = approved(client, "PUT", "/me/player/volume", {"volume_percent": 20})
+        with pytest.raises(ValueError):
+            await client.set_volume(40, approval=wrong)
+        assert not respx.calls
+
+
+@respx.mock
 async def test_client_supports_queue_playback_and_device_operations(tmp_path: Path) -> None:
     """Every Phase 1 player operation uses its documented Spotify endpoint."""
     queue = respx.post("https://api.example/v1/me/player/queue").mock(

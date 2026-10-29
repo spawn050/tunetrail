@@ -48,6 +48,11 @@ class Parser:
         ("resume", "resume", "PUT", "play"),
         ("next track", "next", "POST", "next"),
         ("previous track", "previous", "POST", "previous"),
+        ("ok lets play the current song", "resume", "PUT", "play"),
+        ("resume the current song", "resume", "PUT", "play"),
+        ("play next song", "next", "POST", "next"),
+        ("could you pause the current track please?", "pause", "PUT", "pause"),
+        ("go to the previous song", "previous", "POST", "previous"),
     ],
 )
 @respx.mock
@@ -72,6 +77,46 @@ async def test_explicit_chat_player_controls(
         transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
     ) as client:
         assert (await client.post("/api/chat", json={"message": message})).status_code == 403
+        token = (await client.get("/api/session")).json()["token"]
+        response = await client.post(
+            "/api/chat", headers={"x-tunetrail-token": token}, json={"message": message}
+        )
+        assert response.json() == {"control": action, "requested": True}
+        assert mutation.call_count == 1
+    await services.http.aclose()
+
+
+@pytest.mark.parametrize(
+    ("message", "action", "path", "params"),
+    [
+        ("set volume to 40 percent", "volume 40%", "volume", {"volume_percent": "40"}),
+        ("please set the volume to 0%", "volume 0%", "volume", {"volume_percent": "0"}),
+        ("volume 100", "volume 100%", "volume", {"volume_percent": "100"}),
+        ("turn shuffle on", "shuffle on", "shuffle", {"state": "true"}),
+        ("disable shuffle", "shuffle off", "shuffle", {"state": "false"}),
+    ],
+)
+@respx.mock
+async def test_parameterized_player_controls(
+    tmp_path: Path, message: str, action: str, path: str, params: dict[str, str]
+) -> None:
+    services = Services(
+        Settings(spotify_api_url="https://api.example/v1"), tmp_path / "db", tmp_path / "auth"
+    )
+    await FileCredentialStore(tmp_path / "auth").save_token(
+        OAuthToken(
+            access_token="access",
+            refresh_token="refresh",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    mutation = respx.put(f"https://api.example/v1/me/player/{path}", params=params).mock(
+        return_value=httpx.Response(204)
+    )
+    respx.get("https://api.example/v1/me/player").mock(return_value=httpx.Response(204))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(services)), base_url="http://127.0.0.1:8766"
+    ) as client:
         token = (await client.get("/api/session")).json()["token"]
         response = await client.post(
             "/api/chat", headers={"x-tunetrail-token": token}, json={"message": message}

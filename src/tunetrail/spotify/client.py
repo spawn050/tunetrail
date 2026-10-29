@@ -279,6 +279,25 @@ class SpotifyClient:
             "PUT", "/me/player/pause", params=_device_params({}, device_id), approval=approval
         )
 
+    async def set_volume(self, volume_percent: int, *, approval: str | None = None) -> None:
+        """Set an explicitly approved volume on the active device."""
+        if type(volume_percent) is not int or not 0 <= volume_percent <= 100:
+            raise ValueError("Volume must be an integer between 0 and 100")
+        await self._player_request(
+            "PUT", "/me/player/volume", params={"volume_percent": volume_percent}, approval=approval
+        )
+
+    async def set_shuffle(self, enabled: bool, *, approval: str | None = None) -> None:
+        """Set an explicitly approved shuffle state on the active device."""
+        if type(enabled) is not bool:
+            raise ValueError("Shuffle state must be a boolean")
+        await self._player_request(
+            "PUT",
+            "/me/player/shuffle",
+            params={"state": "true" if enabled else "false"},
+            approval=approval,
+        )
+
     async def next_track(
         self, *, device_id: str | None = None, approval: str | None = None
     ) -> None:
