@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
@@ -23,6 +23,19 @@ async function send(user, text) {
 }
 
 describe('chat-focused interface', () => {
+  it.each(['success', 'failure'])('shows a spinner until the chat request ends: %s', async (outcome) => {
+    const api = mockApi(); const user = userEvent.setup();
+    let finish;
+    api.post = vi.fn(() => new Promise((resolve, reject) => { finish = outcome === 'success' ? () => resolve({ preferences: [{ name: 'Artist' }] }) : () => reject(new Error('Request failed')); }));
+    render(<App api={api} />);
+    await send(user, 'I like this artist');
+    expect(screen.getByRole('status')).toHaveTextContent('Waiting for TuneTrail');
+    expect(screen.getByLabelText('Request or lasting preference')).toBeDisabled();
+    await act(async () => { finish(); });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Request or lasting preference')).toBeEnabled();
+    expect(await screen.findByText(outcome === 'success' ? 'Clear lasting preferences saved to your profile.' : 'Request failed')).toBeInTheDocument();
+  });
   it('shows now playing, chat, and no legacy panels', async () => {
     const api = mockApi(); const user = userEvent.setup(); const original = api.get;
     api.get = vi.fn((path) => path === '/api/now-playing' ? Promise.resolve({ title: 'A song', artists: ['An artist'], duration_ms: 200000, progress_ms: 65000, is_playing: false }) : original(path));

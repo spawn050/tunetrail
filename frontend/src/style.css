@@ -26,6 +26,10 @@ button:disabled { cursor: not-allowed; }
 .chat-entry ol { padding-left: 1.4rem; }
 .chat-entry li { margin: .5rem 0; }
 .chat-entry time, .coverage { color: #b4bbb4; font-size: .8rem; }
+.waiting { display: flex; align-items: center; gap: .6rem; color: #b6c4b7; }
+.spinner { width: 1rem; height: 1rem; border: 2px solid #495149; border-top-color: #1ed760; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 .composer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .8rem 0; border-top: 1px solid #303330; background: #101110; }
 .composer textarea { flex: 1; max-width: none; min-height: 3rem; max-height: 8rem; resize: vertical; border: 1px solid #495149; border-radius: .7rem; background: #242924; color: inherit; font: inherit; }
 .composer button { border: 0; border-radius: 2rem; background: #1ed760; color: #101110; font-weight: bold; }

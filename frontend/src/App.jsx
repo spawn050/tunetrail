@@ -109,7 +109,7 @@ export default function App({ api = apiDefault }) {
 
   useEffect(() => {
     if (conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight;
-  }, [conversation, connection]);
+  }, [conversation, connection, busy]);
 
   async function submit(e) {
     e.preventDefault();
@@ -161,6 +161,7 @@ export default function App({ api = apiDefault }) {
         {entry.notice && <p className="coverage">{entry.notice}</p>}
       </div>)}
       {connection?.status === 'pending' && connection.url && <div className="chat-entry assistant"><a href={connection.url} target="_blank" rel="noopener noreferrer">Open Spotify authorization</a></div>}
+      {busy && <div className="chat-entry assistant waiting" role="status"><span className="spinner" aria-hidden="true" /> Waiting for TuneTrail…</div>}
     </section>
     <form className="composer" onSubmit={submit}>
       <label className="sr-only" htmlFor="message">Request or lasting preference</label>
