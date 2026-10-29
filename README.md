@@ -36,6 +36,10 @@ local build from the checkout, not from an installed wheel. The API binds to
 [API guide](docs/phase-4u-api.md) for origin protections, limitations, and
 offline status. Chat sent to a configured hosted LLM leaves the machine.
 
+After the initial dependency installation, run `./dev.sh` from the checkout to
+rebuild the frontend and start the backend in one step. Stop it with Ctrl+C.
+The script does not watch for changes; rerun it after frontend edits.
+
 The chat accepts exact player commands: `pause`, `resume` or `play` (resume),
 `next` or `next track`, and `previous` or `previous track`. Each command
 authorizes that one action on the active Spotify device; these commands are
